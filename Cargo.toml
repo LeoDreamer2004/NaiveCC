@@ -1,0 +1,11 @@
+[package]
+name = "compiler_principle"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+lalrpop = "0.22.0"
+
+[dependencies]
+lazy_static = "1.4.0"
+lalrpop-util = { version = "0.22.0", features = ["lexer"] }

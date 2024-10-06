@@ -1,0 +1,60 @@
+use crate::ast::*;
+grammar;
+
+match {
+  r"\s*" => {},
+  r"//[^\n\r]*[\n\r]*" => {},
+  _
+}
+
+pub CompUnit: CompUnit = {
+    <decl: Decl> => { CompUnit { comp_items: vec![CompItem::Decl(decl)] } },
+
+    <func_def: FuncDef> => { CompUnit { comp_items: vec![CompItem::FuncDef(func_def)] } },
+    
+    <comp_unit: CompUnit><decl: Decl> => {
+        let mut comp_items = comp_unit.comp_items;
+        comp_items.push(CompItem::Decl(decl));
+        CompUnit { comp_items }
+    }
+
+    <comp_unit: CompUnit><func_def: FuncDef> => {
+        let mut comp_items = comp_unit.comp_items;
+        comp_items.push(CompItem::FuncDef(func_def));
+        CompUnit { comp_items }
+    }
+}
+
+
+Decl: Decl = {
+    <const_decl: ConstDecl> => { Decl::ConstDecl(const_decl) }
+    <var_decl: VarDecl> => { Decl::VarDecl(var_decl) }
+}
+
+ConstDecl: ConstDecl = {
+  'const' <b_type: BType> <const_defs: ConstDefs> => {
+        ConstDecl {b_type, const_defs}
+    }
+}
+
+ConstDefs: Vec<ConstDef> = {
+    <const_def: ConstDef> => { vec![const_def] }
+    <mut const_defs: ConstDefs> ',' <const_def: ConstDef> => {
+        const_defs.push(const_def);
+        const_defs
+    }
+}
+
+VarDecl: VarDecl = {
+    <b_type: BType><var_defs: VarDefs> => {
+        VarDecl {b_type, var_defs}
+    } 
+}
+
+VarDefs: Vec<VarDef> = {
+    <var_def: VarDef> => { vec![var_def] }
+    <mut var_defs: VarDefs> ',' <var_def: VarDef> => {
+        var_defs.push(var_def);
+        var_defs
+    }
+}
