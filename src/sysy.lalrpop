@@ -4,57 +4,238 @@ grammar;
 match {
   r"\s*" => {},
   r"//[^\n\r]*[\n\r]*" => {},
+  r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/" => {},
   _
 }
 
+////////////////// Macros //////////////////
+
+// Match a sequence of items separated by commas
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T?> => match e { 
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+// Match a sequence of items separated by semicolons
+Index<T>: Vec<T> = {
+    <v:("[" <T> "]")*> => v
+};
+
+/////////////////// Tokens //////////////////
+
 pub CompUnit: CompUnit = {
-    <decl: Decl> => { CompUnit { comp_items: vec![CompItem::Decl(decl)] } },
-
-    <func_def: FuncDef> => { CompUnit { comp_items: vec![CompItem::FuncDef(func_def)] } },
-    
-    <comp_unit: CompUnit><decl: Decl> => {
-        let mut comp_items = comp_unit.comp_items;
-        comp_items.push(CompItem::Decl(decl));
-        CompUnit { comp_items }
-    }
-
-    <comp_unit: CompUnit><func_def: FuncDef> => {
-        let mut comp_items = comp_unit.comp_items;
-        comp_items.push(CompItem::FuncDef(func_def));
-        CompUnit { comp_items }
-    }
+    <comp_items: CompItem*> => CompUnit { <> }
 }
 
+CompItem: CompItem = {
+    <Decl> => CompItem::Decl(<>),
+    <FuncDef> => CompItem::FuncDef(<>)
+}
+
+BType: BType = {
+    "int" => BType::Int 
+}
+
+FuncType: FuncType = {
+    "void" => FuncType::Void,
+    <BType> => FuncType::BType(<>)
+}
+
+Ident: String = r"[_a-zA-Z][_a-zA-Z0-9]*" => <>.to_string();
+
+Number: Number = {
+   <IntConst> => Number::Int(<>)
+}
 
 Decl: Decl = {
-    <const_decl: ConstDecl> => { Decl::ConstDecl(const_decl) }
-    <var_decl: VarDecl> => { Decl::VarDecl(var_decl) }
+    <ConstDecl> => Decl::ConstDecl(<>),
+    <VarDecl> => Decl::VarDecl(<>)
 }
 
 ConstDecl: ConstDecl = {
-  'const' <b_type: BType> <const_defs: ConstDefs> => {
-        ConstDecl {b_type, const_defs}
-    }
+  "const" <b_type: BType> <const_defs: Comma<ConstDef>> ";" => ConstDecl { <> }
 }
 
-ConstDefs: Vec<ConstDef> = {
-    <const_def: ConstDef> => { vec![const_def] }
-    <mut const_defs: ConstDefs> ',' <const_def: ConstDef> => {
-        const_defs.push(const_def);
-        const_defs
-    }
+ConstDef: ConstDef = {
+    <ident: Ident> <array_size: Index<ConstExp>> "=" <const_init_val: ConstInitVal> => ConstDef { <> }
+}
+
+ConstInitVal: ConstInitVal = {
+    <ConstExp> => ConstInitVal::ConstExp(<>),
+    "{" <Comma<ConstInitVal>> "}" => ConstInitVal::ConstInitVals(Box::new(<>))
 }
 
 VarDecl: VarDecl = {
-    <b_type: BType><var_defs: VarDefs> => {
-        VarDecl {b_type, var_defs}
-    } 
+    // Use FuncType to avoid ambiguity
+    <func_type: FuncType> <var_defs: VarDef+> ";" => {
+        if let FuncType::BType(b_type) = func_type {
+            return VarDecl { b_type, var_defs };
+        } else { // void is not allowed in variable declaration
+            panic!("Invalid type");
+        }
+    }
 }
 
-VarDefs: Vec<VarDef> = {
-    <var_def: VarDef> => { vec![var_def] }
-    <mut var_defs: VarDefs> ',' <var_def: VarDef> => {
-        var_defs.push(var_def);
-        var_defs
+VarDef: VarDef = {
+    <ident: Ident> <array_size: Index<ConstExp>> <init_val: ("=" <InitVal>)?> => VarDef { <> }
+};
+
+InitVal: InitVal = {
+    <Exp> => InitVal::Exp(<>),
+    "{" <init_vals: Comma<InitVal>> "}" => InitVal::InitVals(Box::new(<>))
+}
+
+FuncDef: FuncDef = {
+    <func_type: FuncType> <ident: Ident> "(" <params: Comma<FuncFParam>> ")" <block: Block> => FuncDef { 
+        func_type, ident, params, block 
     }
+}
+
+FuncFParam: FuncFParam = {
+    <b_type: BType> <ident: Ident> => FuncFParam { <>, is_array: false, extra_array_size: vec![] },
+
+    <b_type: BType> <ident: Ident> "[" "]" <extra_array_size: Index<Exp>> => FuncFParam { <>, is_array: true }
+}
+
+Block: Block = "{" <block_items: BlockItem*> "}" => Block { <> };
+
+BlockItem: BlockItem = {
+    <Decl> => BlockItem::Decl(<>),
+    <Stmt> => BlockItem::Stmt(<>)
+}
+
+Stmt: Stmt = {
+    <__IfMatchStmt> => <>,
+    <__IfOpenStmt> => <>
+}
+
+/// Helper to deal with the ambiguity of if-then-else statement
+
+__IfMatchStmt: Stmt = {
+    ";" => Stmt::Empty,
+
+    <Exp> ";" => Stmt::Exp(Box::new(<>)),
+
+    <l_val: LVal> "=" <exp: Exp> ";" => Stmt::Assign(Box::new(Assign { <> })),
+
+    <Block> => Stmt::Block(Box::new(<>)),
+
+    "while" "(" <cond: Cond> ")" <stmt: __IfMatchStmt> => Stmt::While(Box::new(While { <> })),
+
+    "break" ";" => Stmt::Break,
+
+    "continue" ";" => Stmt::Continue,
+
+    "return" <exp: Exp?> ";" => Stmt::Return(Box::new(Return { <> })),
+
+    "if" "(" <cond: Cond> ")" <stmt: __IfMatchStmt> "else" <else_stmt: __IfMatchStmt> => Stmt::If(
+        Box::new(If { cond, stmt, else_stmt: Some(else_stmt) })), 
+}
+
+__IfOpenStmt: Stmt = {
+    "while" "(" <cond: Cond> ")" <stmt: __IfOpenStmt> => Stmt::While(Box::new(While { <> })),
+    "if" "(" <cond: Cond> ")" <stmt: Stmt> => Stmt::If(Box::new(If { <>, else_stmt: None })),
+    "if" "(" <cond: Cond> ")" <stmt: __IfMatchStmt> "else" <else_stmt: __IfOpenStmt> => Stmt::If(Box::new(If { cond, stmt, else_stmt: Some(else_stmt) })),
+}
+
+Exp: Exp = {
+    <AddExp> => Exp::AddExp(<>),
+}
+
+ConstExp: ConstExp = {
+    <AddExp> => ConstExp::AddExp(<>)
+}
+
+LVal: LVal = {
+    <ident: Ident> <array_index: Index<Exp>> => LVal { <> }
+}
+
+AddExp: AddExp = {
+    <MulExp> => AddExp::MulExp(<>),
+    <add_exp: AddExp> <add_op: AddOp> <mul_exp: MulExp> => AddExp::AddOpExp(Box::new(AddOpExp { <> }))
+}
+
+AddOp: AddOp = {
+    "+" => AddOp::Add,
+    "-" => AddOp::Sub
+}
+
+MulExp: MulExp = {
+    <UnaryExp> => MulExp::UnaryExp(<>),
+    <mul_exp: MulExp> <mul_op: MulOp> <unary_exp: UnaryExp> => MulExp::MulOpExp(Box::new(MulOpExp { <> }))
+}
+
+MulOp : MulOp = {
+    "*" => MulOp::Mul,
+    "/" => MulOp::Div,
+    "%" => MulOp::Mod
+}
+
+UnaryExp: UnaryExp = {
+    <PrimaryExp> => UnaryExp::PrimaryExp(<>),
+    <FuncCall> => UnaryExp::FuncCall(<>),
+    <unary_op: UnaryOp> <unary_exp: UnaryExp> => UnaryExp::UnaryOpExp(Box::new(UnaryOpExp { <> }))
+}
+
+UnaryOp: UnaryOp = {
+    "+" => UnaryOp::Pos,
+    "-" => UnaryOp::Neg,
+    "!" => UnaryOp::Not
+}
+
+FuncCall: FuncCall = {
+    <ident: Ident> "(" <args: Comma<Exp>> ")" => FuncCall { <> }
+}
+
+PrimaryExp: PrimaryExp = {
+    "(" <Exp> ")" => PrimaryExp::Exp(Box::new(<>)),
+    <LVal> => PrimaryExp::LVal(Box::new(<>)),
+    <Number> => PrimaryExp::Number(<>)
+}
+
+Cond: Cond = {
+    <LOrExp> => Cond::LOrExp(Box::new(<>))
+}
+
+LOrExp: LOrExp = {
+    <LAndExp> => LOrExp::LAndExp(<>),
+    <l_or_exp: LOrExp> "||" <l_and_exp: LAndExp> => LOrExp::LOrOpExp(Box::new(LOrOpExp { <> }))
+}
+
+LAndExp: LAndExp = {
+    <EqExp> => LAndExp::EqExp(<>),
+    <l_and_exp: LAndExp> "&&" <eq_exp: EqExp> => LAndExp::LAndOpExp(Box::new(LAndOpExp { <> }))
+}
+
+EqExp: EqExp = {
+    <RelExp> => EqExp::RelExp(<>),
+    <eq_exp: EqExp> <eq_op: EqOp> <rel_exp: RelExp> => EqExp::EqOpExp(Box::new(EqOpExp { <> })),
+}
+
+EqOp: EqOp = {
+    "==" => EqOp::Eq,
+    "!=" => EqOp::Ne
+}
+
+RelExp: RelExp = {
+    <AddExp> => RelExp::AddExp(<>),
+    <rel_exp: RelExp> <rel_op: RelOp> <add_exp: AddExp> => RelExp::RelOpExp(Box::new(RelOpExp { <> } ))
+} 
+
+RelOp: RelOp = {
+    "<" => RelOp::Lt,
+    "<=" => RelOp::Le,
+    ">" => RelOp::Gt,
+    ">=" => RelOp::Ge
+}
+
+IntConst: i32 = {
+  r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
+  r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
+  r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
 }

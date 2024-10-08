@@ -1,267 +1,292 @@
+#[derive(Debug)]
 pub struct CompUnit {
     pub comp_items: Vec<CompItem>,
 }
 
+#[derive(Debug)]
 pub enum CompItem {
     FuncDef(FuncDef),
     Decl(Decl),
 }
 
+#[derive(Debug)]
 pub enum Decl {
     ConstDecl(ConstDecl),
     VarDecl(VarDecl),
 }
 
+#[derive(Debug)]
 pub struct ConstDecl {
     pub b_type: BType,
     pub const_defs: Vec<ConstDef>,
 }
 
+#[derive(Debug)]
 pub enum BType {
     Int,
 }
 
-pub struct ArrayIndex {
-    pub usize: Vec<ConstExp>,
-}
-
+#[derive(Debug)]
 pub struct ConstDef {
     pub ident: String,
-    pub array_size: Option<ArrayIndex>,
+    pub array_size: Vec<ConstExp>,
     pub const_init_val: ConstInitVal,
 }
 
+#[derive(Debug)]
 pub enum ConstInitVal {
     ConstExp(ConstExp),
-    ConstInitVals(Vec<Box<ConstInitVal>>),
+    ConstInitVals(Box<Vec<ConstInitVal>>),
 }
 
-pub struct ConstExp {
-    pub add_exp: AddExp,
+#[derive(Debug)]
+pub enum ConstExp {
+    AddExp(AddExp),
 }
 
+#[derive(Debug)]
 pub struct VarDecl {
-    b_type: BType,
-    var_defs: Vec<VarDef>,
+    pub b_type: BType,
+    pub var_defs: Vec<VarDef>,
 }
 
+#[derive(Debug)]
 pub struct VarDef {
-    ident: String,
-    array_size: Option<ArrayIndex>,
-    init_val: Option<InitVal>,
+    pub ident: String,
+    pub array_size: Vec<ConstExp>,
+    pub init_val: Option<InitVal>,
 }
 
+#[derive(Debug)]
 pub enum InitVal {
     Exp(Exp),
-    InitVals(Vec<Box<InitVal>>),
+    InitVals(Box<Vec<InitVal>>),
 }
 
+#[derive(Debug)]
 pub struct FuncDef {
     pub func_type: FuncType,
     pub ident: String,
-    pub params: FuncFParams,
+    pub params: Vec<FuncFParam>,
     pub block: Block,
 }
 
+#[derive(Debug)]
 pub enum FuncType {
     Void,
-    Int,
+    BType(BType),
 }
 
-pub struct FuncFParams {
-    pub params: Vec<FuncFParam>,
-}
-
+#[derive(Debug)]
 pub struct FuncFParam {
     pub b_type: BType,
     pub ident: String,
-    // must be as a[][5][6]
-    pub array_size: Option<ArrayIndex>,
+    pub is_array: bool,
+    // For a[][5], 'extra_array_size' is Some([5]).
+    pub extra_array_size: Vec<Exp>,
 }
 
+#[derive(Debug)]
 pub struct Block {
     pub block_items: Vec<BlockItem>,
 }
 
+#[derive(Debug)]
 pub enum BlockItem {
     Stmt(Stmt),
     Decl(Decl),
 }
 
+#[derive(Debug)]
 pub enum Stmt {
-    Assign(Assign),
-    Exp(Exp),
-    Block(Block),
-    If(If),
-    While(While),
+    Assign(Box<Assign>),
+    Exp(Box<Exp>),
+    Block(Box<Block>),
+    If(Box<If>),
+    While(Box<While>),
     Break,
     Continue,
-    Return(Return),
+    Return(Box<Return>),
     Empty,
 }
 
+#[derive(Debug)]
 pub struct Assign {
     pub l_val: LVal,
     pub exp: Exp,
 }
 
+#[derive(Debug)]
 pub struct If {
     pub cond: Cond,
-    pub true_stmt: Box<Stmt>,
-    pub false_stmt: Option<Box<Stmt>>,
+    pub stmt: Stmt,
+    pub else_stmt: Option<Stmt>,
 }
 
+#[derive(Debug)]
 pub struct While {
     pub cond: Cond,
-    pub stmt: Box<Stmt>,
+    pub stmt: Stmt,
 }
 
+#[derive(Debug)]
 pub struct Return {
     pub exp: Option<Exp>,
 }
 
-pub struct Exp {
-    pub add_exp: AddExp,
+#[derive(Debug)]
+pub enum Exp {
+    AddExp(AddExp),
 }
 
-pub struct Cond {
-    pub l_or_exp: LOrExp,
+#[derive(Debug)]
+pub enum Cond {
+    LOrExp(Box<LOrExp>),
 }
 
+#[derive(Debug)]
 pub struct LVal {
     pub ident: String,
-    pub exp: Option<ArrayIndex>,
+    pub array_index: Vec<Exp>
 }
 
+#[derive(Debug)]
 pub enum PrimaryExp {
     Exp(Box<Exp>),
-    LVal(LVal),
+    LVal(Box<LVal>),
     Number(Number),
 }
 
-pub struct Number {
-    pub value: i32,
+#[derive(Debug)]
+pub enum Number {
+    Int(i32),
 }
 
+#[derive(Debug)]
+pub struct FuncCall {
+    pub ident: String,
+    pub args: Vec<Exp>,
+}
+
+#[derive(Debug)]
 pub enum UnaryExp {
     PrimaryExp(PrimaryExp),
     FuncCall(FuncCall),
-    UnaryOpExp(UnaryOpExp),
+    UnaryOpExp(Box<UnaryOpExp>),
 }
 
-pub struct FuncCall {
-    pub ident: String,
-    pub args: FuncRParams,
-}
-
+#[derive(Debug)]
 pub struct UnaryOpExp {
     pub unary_op: UnaryOp,
-    pub unary_exp: Box<UnaryExp>,
+    pub unary_exp: UnaryExp,
 }
 
+#[derive(Debug)]
 pub enum UnaryOp {
-    Plus,
-    Minus,
+    Pos,
+    Neg,
     Not,
 }
 
-pub struct FuncRParams {
-    pub exps: Vec<Exp>,
-}
-
+#[derive(Debug)]
 pub enum MulExp {
     UnaryExp(UnaryExp),
-    MulOpExp(MulOpExp),
+    MulOpExp(Box<MulOpExp>),
 }
 
+#[derive(Debug)]
 pub struct MulOpExp {
-    pub mul_exp: Box<MulExp>,
+    pub mul_exp: MulExp,
     pub mul_op: MulOp,
-    pub unary_exp: Box<UnaryExp>,
+    pub unary_exp: UnaryExp,
 }
 
+#[derive(Debug)]
 pub enum MulOp {
     Mul,
     Div,
     Mod,
 }
 
+#[derive(Debug)]
 pub enum AddExp {
     MulExp(MulExp),
-    AddOpExp(AddOpExp),
+    AddOpExp(Box<AddOpExp>),
 }
 
+#[derive(Debug)]
 pub struct AddOpExp {
-    pub add_exp: Box<AddExp>,
+    pub add_exp: AddExp,
     pub add_op: AddOp,
     pub mul_exp: MulExp,
 }
 
+#[derive(Debug)]
 pub enum AddOp {
-    Plus,
-    Minus,
+    Add,
+    Sub,
 }
 
+#[derive(Debug)]
 pub enum RelExp {
     AddExp(AddExp),
-    RelOpExp(RelOpExp),
+    RelOpExp(Box<RelOpExp>),
 }
 
+#[derive(Debug)]
 pub struct RelOpExp {
-    pub rel_exp: Box<RelExp>,
+    pub rel_exp: RelExp,
     pub rel_op: RelOp,
     pub add_exp: AddExp,
 }
 
+#[derive(Debug)]
 pub enum RelOp {
     Lt,
-    Gt,
     Le,
+    Gt,
     Ge,
 }
 
+#[derive(Debug)]
 pub enum EqExp {
     RelExp(RelExp),
-    EqOpExp(EqOpExp),
+    EqOpExp(Box<EqOpExp>),
 }
 
+#[derive(Debug)]
 pub struct EqOpExp {
-    pub eq_exp: Box<EqExp>,
+    pub eq_exp: EqExp,
     pub eq_op: EqOp,
     pub rel_exp: RelExp,
 }
 
+#[derive(Debug)]
 pub enum EqOp {
     Eq,
     Ne,
 }
 
+#[derive(Debug)]
 pub enum LAndExp {
     EqExp(EqExp),
-    LAndOpExp(LAndOpExp),
+    LAndOpExp(Box<LAndOpExp>),
 }
 
+#[derive(Debug)]
 pub struct LAndOpExp {
-    pub l_and_exp: Box<LAndExp>,
-    pub l_and_op: LAndOp,
+    pub l_and_exp: LAndExp,
     pub eq_exp: EqExp,
 }
 
-pub enum LAndOp {
-    And,
-}
-
+#[derive(Debug)]
 pub enum LOrExp {
     LAndExp(LAndExp),
-    LOrOpExp(LOrOpExp),
+    LOrOpExp(Box<LOrOpExp>),
 }
 
+#[derive(Debug)]
 pub struct LOrOpExp {
-    pub l_or_exp: Box<LOrExp>,
-    pub l_or_op: LOrOp,
+    pub l_or_exp: LOrExp,
     pub l_and_exp: LAndExp,
-}
-
-pub enum LOrOp {
-    Or,
 }
