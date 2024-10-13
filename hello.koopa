@@ -1,0 +1,6 @@
+global @data_arr = alloc [i32, 65536], zeroinit
+
+fun @main(): i32 {
+%entry:
+  ret 0
+}
