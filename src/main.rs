@@ -1,4 +1,4 @@
-use backend::assemble;
+use backend::emit_asm;
 use frontend::{build_program, emit_ir};
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
@@ -36,7 +36,8 @@ fn main() -> Result<(), Error> {
 
     match args.mode {
         Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,
-        Mode::RiscV => assemble(program, output),
+        Mode::RiscV => emit_asm(program, output),
+        Mode::Perf => todo!(),
     }
     Ok(())
 }
@@ -48,6 +49,7 @@ fn parse_cmd_args() -> Result<CommandLineArgs, Error> {
     match args.next().unwrap().as_str() {
         "-koopa" => cmd_args.mode = Mode::Koopa,
         "-riscv" => cmd_args.mode = Mode::RiscV,
+        "-perf" => cmd_args.mode = Mode::Perf,
         _ => return Err(Error::InvalidArgs),
     }
     cmd_args.input = args.next().unwrap();
@@ -68,4 +70,5 @@ enum Mode {
     #[default]
     Koopa,
     RiscV,
+    Perf,
 }

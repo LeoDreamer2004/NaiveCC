@@ -21,7 +21,7 @@ pub trait GenerateAsm {
 impl GenerateAsm for Program {
     fn generate_on(&self, output: &mut impl Write) {
         write_output!(output, ".text\n");
-        write_output!(output, ".globl\n");
+        write_output!(output, ".globl main\n");
         for &func in self.func_layout() {
             self.func(func).generate_on(output);
         }
@@ -61,6 +61,6 @@ fn generate_value_data(dfg: &DataFlowGraph, value: Value, output: &mut impl Writ
     }
 }
 
-pub fn assemble(program: Program, mut output: impl Write) {
+pub fn emit_asm(program: Program, mut output: impl Write) {
     program.generate_on(&mut output);
 }
