@@ -1,5 +1,5 @@
-use crate::frontend::{emit_ir, Error};
-use frontend::build_program;
+use backend::assemble;
+use frontend::{build_program, emit_ir};
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::{read_to_string, File};
@@ -10,23 +10,34 @@ mod frontend;
 
 lalrpop_mod!(sysy);
 
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum Error {
+    InvalidArgs,
+    InvalidFile(io::Error),
+    Parse(frontend::ParseError),
+    Io(io::Error),
+}
+
 fn main() -> Result<(), Error> {
     let args = parse_cmd_args()?;
-    let input = read_to_string(args.input).map_err(|e| Error::InvalidFile(e))?;
+    let input = read_to_string(args.input).map_err(Error::InvalidFile)?;
     let ast = sysy::CompUnitParser::new().parse(&input).unwrap();
 
     // println!("{:#?}", ast);
 
-    let mut program = build_program(ast)?;
+    let mut program = build_program(ast).map_err(Error::Parse)?;
     let output = if let Some(path) = args.output {
-        let file = File::create(path).map_err(|e| Error::InvalidFile(e))?;
+        let file = File::create(path).map_err(Error::InvalidFile)?;
         Box::new(file) as Box<dyn io::Write>
     } else {
         Box::new(io::stdout())
     };
-    emit_ir(&mut program, output)?;
 
-    // assemble(program);
+    match args.mode {
+        Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,
+        Mode::RiscV => assemble(program, output),
+    }
     Ok(())
 }
 
@@ -56,5 +67,5 @@ struct CommandLineArgs {
 enum Mode {
     #[default]
     Koopa,
-    RiscV
+    RiscV,
 }

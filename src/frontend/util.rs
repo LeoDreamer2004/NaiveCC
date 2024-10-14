@@ -1,40 +1,50 @@
-// Macro for generating IR //
+use koopa::ir::entities::BasicBlockData;
+use koopa::ir::FunctionData;
 
-/// Create a new `BasicBlock` in `Function`
-#[macro_export]
-macro_rules! new_bb {
-    ($func:expr) => {
-        $func.dfg_mut().new_bb()
-    };
+use super::ast::*;
+
+pub trait IrIndentify {
+    fn global_ident(&self) -> String;
+    fn normal_ident(&self) -> String;
 }
 
-/// Create a new `Value` in `Function`
-#[macro_export]
-macro_rules! new_value {
-    ($func:expr) => {
-        $func.dfg_mut().new_value()
-    };
+impl IrIndentify for FuncDef {
+    fn global_ident(&self) -> String {
+        format!("@{}", self.ident)
+    }
+    fn normal_ident(&self) -> String {
+        format!("%{}", self.ident)
+    }
 }
 
-/// Add a `BasicBlock` to the layout of `Function`
-#[macro_export]
-macro_rules! add_bb {
-    ($func:expr, $bb:expr) => {
-        $func.layout_mut().bbs_mut().push_key_back($bb).unwrap()
-    };
+impl IrIndentify for ConstDef {
+    fn global_ident(&self) -> String {
+        format!("@{}", self.ident)
+    }
+    fn normal_ident(&self) -> String {
+        format!("%{}", self.ident)
+    }
 }
 
-/// Add an `Inst` to a `BasicBlock` in `Function`
-#[macro_export]
-macro_rules! add_inst {
-    ($func:expr, $bb:expr, $inst:expr) => {
-        $func
-            .layout_mut()
-            .bb_mut($bb)
-            .insts_mut()
-            .push_key_back($inst)
-            .unwrap()
-    };
+impl IrIndentify for FuncCall {
+    fn global_ident(&self) -> String {
+        format!("@{}", self.ident)
+    }
+    fn normal_ident(&self) -> String {
+        format!("%{}", self.ident)
+    }
 }
 
-// End of Macro //
+pub fn identifier_rename(
+    ident: &mut String,
+    func_data: &FunctionData,
+    block_data: &BasicBlockData,
+) {
+    // TODO: If blockdata doesn't have a name, generate a name for it
+    (*ident) = format!(
+        "__{}_{}_{}",
+        func_data.name()[1..].to_string(),
+        block_data.name().clone().unwrap_or_default()[1..].to_string(),
+        ident
+    );
+}

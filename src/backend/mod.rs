@@ -2,9 +2,11 @@ use koopa::ir::dfg::DataFlowGraph;
 use koopa::ir::ValueKind;
 use koopa::ir::{FunctionData, Program, Value};
 use riscv::*;
+use util::AsmIdentify;
 use std::io::Write;
 
 mod riscv;
+mod util;
 
 macro_rules! write_output {
     ($output:expr, $($arg:tt)*) => {
@@ -13,19 +15,22 @@ macro_rules! write_output {
 }
 
 pub trait GenerateAsm {
-    fn generate(&self, output: &mut impl Write);
+    fn generate_on(&self, output: &mut impl Write);
 }
 
 impl GenerateAsm for Program {
-    fn generate(&self, output: &mut impl Write) {
+    fn generate_on(&self, output: &mut impl Write) {
+        write_output!(output, ".text\n");
+        write_output!(output, ".globl\n");
         for &func in self.func_layout() {
-            self.func(func).generate(output);
+            self.func(func).generate_on(output);
         }
     }
 }
 
 impl GenerateAsm for FunctionData {
-    fn generate(&self, output: &mut impl Write) {
+    fn generate_on(&self, output: &mut impl Write) {
+        write_output!(output, "{}:\n", self.original_ident());
         for (&_, node) in self.layout().bbs() {
             for &inst in node.insts().keys() {
                 generate_value_data(self.dfg(), inst, output);
@@ -48,6 +53,7 @@ fn generate_value_data(dfg: &DataFlowGraph, value: Value, output: &mut impl Writ
                     rs: generate_value_data(dfg, value, output),
                 };
                 write_output!(output, "{}", mv.dump());
+                write_output!(output, "{}", Ret {}.dump());
             }
             registers::A0
         }
@@ -55,6 +61,6 @@ fn generate_value_data(dfg: &DataFlowGraph, value: Value, output: &mut impl Writ
     }
 }
 
-pub fn assemble(program: Program) {
-    program.generate(&mut std::io::stdout());
+pub fn assemble(program: Program, mut output: impl Write) {
+    program.generate_on(&mut output);
 }
