@@ -1,8 +1,7 @@
 use koopa::ir::dfg::DataFlowGraph;
-use koopa::ir::{builder_traits::*, ValueKind};
-use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Type, Value};
+use koopa::ir::ValueKind;
+use koopa::ir::{FunctionData, Program, Value};
 use riscv::*;
-
 use std::io::Write;
 
 mod riscv;
@@ -27,7 +26,7 @@ impl GenerateAsm for Program {
 
 impl GenerateAsm for FunctionData {
     fn generate(&self, output: &mut impl Write) {
-        for (&bb, node) in self.layout().bbs() {
+        for (&_, node) in self.layout().bbs() {
             for &inst in node.insts().keys() {
                 generate_value_data(self.dfg(), inst, output);
             }

@@ -21,7 +21,7 @@ pub struct ConstDecl {
     pub const_defs: Vec<ConstDef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BType {
     Int,
 }
@@ -71,7 +71,7 @@ pub struct FuncDef {
     pub block: Block,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum FuncType {
     Void,
     BType(BType),
@@ -147,7 +147,7 @@ pub enum Cond {
 #[derive(Debug)]
 pub struct LVal {
     pub ident: String,
-    pub array_index: Vec<Exp>
+    pub array_index: Vec<Exp>,
 }
 
 #[derive(Debug)]
@@ -181,7 +181,7 @@ pub struct UnaryOpExp {
     pub unary_exp: UnaryExp,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Pos,
     Neg,
@@ -201,7 +201,7 @@ pub struct MulOpExp {
     pub unary_exp: UnaryExp,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum MulOp {
     Mul,
     Div,
@@ -221,7 +221,7 @@ pub struct AddOpExp {
     pub mul_exp: MulExp,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum AddOp {
     Add,
     Sub,
@@ -240,7 +240,7 @@ pub struct RelOpExp {
     pub add_exp: AddExp,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum RelOp {
     Lt,
     Le,
@@ -261,7 +261,7 @@ pub struct EqOpExp {
     pub rel_exp: RelExp,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum EqOp {
     Eq,
     Ne,
