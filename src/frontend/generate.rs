@@ -4,7 +4,6 @@ use super::ast::*;
 use super::eval::*;
 use super::util::identifier_rename;
 use super::util::IrIndentify;
-use super::ParseError;
 use koopa::back::KoopaGenerator;
 use koopa::ir::builder_traits::*;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Type, Value};
@@ -50,6 +49,14 @@ impl Context {
         self.block = Some(block);
         self
     }
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    FunctionNotFoundError(String),
+    IllegalConstExpError(String),
+    AssignError(String),
+    UnknownError(String),
 }
 
 /*********************  Traits  *********************/
@@ -263,7 +270,7 @@ impl VarDecl {
 impl GenerateIr<Value> for Exp {
     fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
-            Exp::AddExp(add_exp) => add_exp.generate_on(context),
+            Exp::LOrExp(l_or_exp) => l_or_exp.generate_on(context),
         }
     }
 }
@@ -271,7 +278,71 @@ impl GenerateIr<Value> for Exp {
 impl GenerateIr<Value> for ConstExp {
     fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
-            ConstExp::AddExp(add_exp) => add_exp.generate_on(context),
+            ConstExp::LOrExp(l_or_exp) => l_or_exp.generate_on(context),
+        }
+    }
+}
+
+impl GenerateIr<Value> for LOrExp {
+    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+        match self {
+            LOrExp::LAndExp(l_and_exp) => l_and_exp.generate_on(context),
+            LOrExp::LOrOpExp(op_exp) => {
+                let lhs = op_exp.l_or_exp.generate_on(context)?;
+                let rhs = op_exp.l_and_exp.generate_on(context)?;
+                let func_data = func_data!(context);
+                let value = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
+                add_inst!(func_data, context.block.unwrap(), value);
+                Ok(value)
+            }
+        }
+    }
+}
+
+impl GenerateIr<Value> for LAndExp {
+    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+        match self {
+            LAndExp::EqExp(eq_exp) => eq_exp.generate_on(context),
+            LAndExp::LAndOpExp(op_exp) => {
+                let lhs = op_exp.l_and_exp.generate_on(context)?;
+                let rhs = op_exp.eq_exp.generate_on(context)?;
+                let func_data = func_data!(context);
+                let value = new_value!(func_data).binary(BinaryOp::And, lhs, rhs);
+                add_inst!(func_data, context.block.unwrap(), value);
+                Ok(value)
+            }
+        }
+    }
+}
+
+impl GenerateIr<Value> for EqExp {
+    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+        match self {
+            EqExp::RelExp(rel_exp) => rel_exp.generate_on(context),
+            EqExp::EqOpExp(op_exp) => {
+                let lhs = op_exp.eq_exp.generate_on(context)?;
+                let rhs = op_exp.rel_exp.generate_on(context)?;
+                let func_data = func_data!(context);
+                let value = new_value!(func_data).binary(op_exp.eq_op.into(), lhs, rhs);
+                add_inst!(func_data, context.block.unwrap(), value);
+                Ok(value)
+            }
+        }
+    }
+}
+
+impl GenerateIr<Value> for RelExp {
+    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+        match self {
+            RelExp::AddExp(add_exp) => add_exp.generate_on(context),
+            RelExp::RelOpExp(op_exp) => {
+                let lhs = op_exp.rel_exp.generate_on(context)?;
+                let rhs = op_exp.add_exp.generate_on(context)?;
+                let func_data = func_data!(context);
+                let value = new_value!(func_data).binary(op_exp.rel_op.into(), lhs, rhs);
+                add_inst!(func_data, context.block.unwrap(), value);
+                Ok(value)
+            }
         }
     }
 }

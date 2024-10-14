@@ -20,6 +20,26 @@ impl Into<Type> for FuncType {
     }
 }
 
+impl Into<BinaryOp> for EqOp {
+    fn into(self) -> BinaryOp {
+        match self {
+            EqOp::Eq => BinaryOp::Eq,
+            EqOp::Ne => BinaryOp::NotEq,
+        }
+    }
+}
+
+impl Into<BinaryOp> for RelOp {
+    fn into(self) -> BinaryOp {
+        match self {
+            RelOp::Lt => BinaryOp::Lt,
+            RelOp::Gt => BinaryOp::Gt,
+            RelOp::Le => BinaryOp::Le,
+            RelOp::Ge => BinaryOp::Ge,
+        }
+    }
+}
+
 impl Into<BinaryOp> for AddOp {
     fn into(self) -> BinaryOp {
         match self {

@@ -72,7 +72,7 @@ pub struct Mv {
 
 impl Instruction for Mv {
     fn dump(&self) -> String {
-        format!("mv {}, {}\n", self.rd, self.rs)
+        format!("mv {}, {}", self.rd, self.rs)
     }
 }
 
@@ -80,6 +80,6 @@ pub struct Ret {}
 
 impl Instruction for Ret {
     fn dump(&self) -> String {
-        "ret\n".to_string()
+        "ret".to_string()
     }
 }

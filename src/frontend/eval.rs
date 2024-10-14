@@ -8,7 +8,7 @@ pub trait Eval<T> {
 impl Eval<i32> for Exp {
     fn eval(&self) -> Result<i32, ParseError> {
         match self {
-            Exp::AddExp(exp) => exp.eval(),
+            Exp::LOrExp(exp) => exp.eval(),
         }
     }
 }
@@ -16,8 +16,14 @@ impl Eval<i32> for Exp {
 impl Eval<i32> for ConstExp {
     fn eval(&self) -> Result<i32, ParseError> {
         match self {
-            ConstExp::AddExp(exp) => exp.eval(),
+            ConstExp::LOrExp(exp) => exp.eval(),
         }
+    }
+}
+
+impl Eval<i32> for LOrExp {
+    fn eval(&self) -> Result<i32, ParseError> {
+        todo!()
     }
 }
 
@@ -87,7 +93,7 @@ impl Eval<i32> for PrimaryExp {
     }
 }
 
-pub fn eval_arraysize(array_index: &Vec<ConstExp>) -> Result<i32, ParseError> {
+pub fn eval_array_size(array_index: &Vec<ConstExp>) -> Result<i32, ParseError> {
     let mut length = 1;
     for exp in array_index {
         length *= exp.eval()?;

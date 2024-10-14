@@ -41,7 +41,7 @@ pub enum ConstInitVal {
 
 #[derive(Debug)]
 pub enum ConstExp {
-    AddExp(AddExp),
+    LOrExp(LOrExp)
 }
 
 #[derive(Debug)]
@@ -136,7 +136,7 @@ pub struct Return {
 
 #[derive(Debug)]
 pub enum Exp {
-    AddExp(AddExp),
+    LOrExp(LOrExp),
 }
 
 #[derive(Debug)]

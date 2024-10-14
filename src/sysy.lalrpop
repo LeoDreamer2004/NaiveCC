@@ -144,11 +144,11 @@ __IfOpenStmt: Stmt = {
 }
 
 Exp: Exp = {
-    <AddExp> => Exp::AddExp(<>),
+    <LOrExp> => Exp::LOrExp(<>),
 }
 
 ConstExp: ConstExp = {
-    <AddExp> => ConstExp::AddExp(<>)
+    <LOrExp> => ConstExp::LOrExp(<>)
 }
 
 LVal: LVal = {

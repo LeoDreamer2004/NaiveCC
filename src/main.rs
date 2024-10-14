@@ -36,7 +36,7 @@ fn main() -> Result<(), Error> {
 
     match args.mode {
         Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,
-        Mode::RiscV => emit_asm(program, output),
+        Mode::RiscV => emit_asm(program, output).map_err(Error::Io)?,
         Mode::Perf => todo!(),
     }
     Ok(())
