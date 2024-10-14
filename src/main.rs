@@ -1,3 +1,9 @@
+//! # Compiler Principle
+//! This is a compiler for the SysY language, which is a subset of C language.
+//! The compiler is implemented in Rust, and it can generate RISC-V assembly code.
+//! 
+//! Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024.git
+
 use backend::emit_asm;
 use frontend::{build_program, emit_ir};
 use lalrpop_util::lalrpop_mod;

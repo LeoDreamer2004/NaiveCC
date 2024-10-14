@@ -290,8 +290,13 @@ impl GenerateIr<Value> for LOrExp {
             LOrExp::LOrOpExp(op_exp) => {
                 let lhs = op_exp.l_or_exp.generate_on(context)?;
                 let rhs = op_exp.l_and_exp.generate_on(context)?;
+                let zero = new_value!(func_data!(context)).integer(0);
                 let func_data = func_data!(context);
+
+                // a || b = ((a | b) != 0)
                 let value = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
+                add_inst!(func_data, context.block.unwrap(), value);
+                let value = new_value!(func_data).binary(BinaryOp::NotEq, value, zero);
                 add_inst!(func_data, context.block.unwrap(), value);
                 Ok(value)
             }
@@ -306,7 +311,14 @@ impl GenerateIr<Value> for LAndExp {
             LAndExp::LAndOpExp(op_exp) => {
                 let lhs = op_exp.l_and_exp.generate_on(context)?;
                 let rhs = op_exp.eq_exp.generate_on(context)?;
+                let zero = new_value!(func_data!(context)).integer(0);
                 let func_data = func_data!(context);
+
+                // a && b = (a != 0) & (b != 0)                
+                let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
+                add_inst!(func_data, context.block.unwrap(), lhs);
+                let rhs = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
+                add_inst!(func_data, context.block.unwrap(), rhs);
                 let value = new_value!(func_data).binary(BinaryOp::And, lhs, rhs);
                 add_inst!(func_data, context.block.unwrap(), value);
                 Ok(value)
@@ -391,7 +403,7 @@ impl GenerateIr<Value> for UnaryExp {
                 let value = match unary_op_exp.unary_op {
                     UnaryOp::Pos => return Ok(exp),
                     UnaryOp::Neg => new_value!(func_data).binary(BinaryOp::Sub, zero, exp),
-                    UnaryOp::Not => new_value!(func_data).binary(BinaryOp::NotEq, exp, zero),
+                    UnaryOp::Not => new_value!(func_data).binary(BinaryOp::Eq, exp, zero),
                 };
                 add_inst!(func_data, context.block.unwrap(), value);
                 Ok(value)
