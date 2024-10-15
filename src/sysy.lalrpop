@@ -72,9 +72,15 @@ ConstInitVal: ConstInitVal = {
 
 VarDecl: VarDecl = {
     // Use FuncType to avoid ambiguity
-    <func_type: FuncType> <var_defs: VarDef+> ";" => {
+    <func_type: FuncType> <var_defs: Comma<VarDef>> ";" => {
         if let FuncType::BType(b_type) = func_type {
-            return VarDecl { b_type, var_defs };
+            if var_defs.is_empty() {
+                panic!("Empty variable declaration");
+            }
+            return VarDecl { 
+                b_type, 
+                var_defs
+            }
         } else { // void is not allowed in variable declaration
             panic!("Invalid type");
         }

@@ -1,7 +1,6 @@
-  const int y = 10;
-
+int p = 5;
 int main() {
-  int x;
+  int x = 10, y = 0;
   int z = x + y; 
   return z;
 }
