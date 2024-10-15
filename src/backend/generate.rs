@@ -168,14 +168,6 @@ impl GenerateAsm<&'static Register> for ElementData {
     }
 }
 
-// pub fn load_or_generate(value: Value, context: &mut Context) -> Result<&'static Register, AsmError> {
-//     if let Some(register) = context.dispatcher.get(&value) {
-//         Ok(register)
-//     } else {
-//         value_data!(context, value).generate_on(context)?;
-//     }
-// }
-
 pub fn build_asm(ir_program: Program) -> Result<AsmProgram, AsmError> {
     let program = AsmProgram::new();
     let mut context = Context {

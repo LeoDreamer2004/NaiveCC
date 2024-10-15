@@ -3,18 +3,16 @@
 use super::ast::*;
 use super::eval::*;
 use super::symbol::*;
-use super::util::identifier_rename;
-use super::util::IrIndentify;
 use koopa::back::KoopaGenerator;
 use koopa::ir::builder_traits::*;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value};
 use std::io;
 
-pub fn build_ir(mut ast: CompUnit) -> Result<Program, ParseError> {
+pub fn build_ir(ast: CompUnit) -> Result<Program, ParseError> {
     let program = Program::new();
     let mut context = Context {
         program,
-        syb_table: SymbolTable::new(),
+        syb_table: SymbolTable::default(),
         func: None,
         block: None,
     };
@@ -52,6 +50,8 @@ impl Context {
 pub enum ParseError {
     FunctionNotFoundError(String),
     IllegalConstExpError(String),
+    UndefinedConstError(String),
+    UndefinedVarError(String),
     AssignError(String),
     UnknownError(String),
 }
@@ -66,7 +66,7 @@ trait GenerateIr<T> {
     ///
     /// # Errors
     /// Returns an [`ParseError`] if the generation fails
-    fn generate_on(&mut self, context: &mut Context) -> Result<T, ParseError>;
+    fn generate_on(&self, context: &mut Context) -> Result<T, ParseError>;
 }
 
 /*********************  Macros  *********************/
@@ -111,11 +111,32 @@ macro_rules! func_data {
     };
 }
 
+/// Set the name of a [`Value`] in the [`FunctionData`]
+macro_rules! set_value_name {
+    ($func:expr, $value:expr, $name:expr) => {
+        $func.dfg_mut().set_value_name($value, Some($name))
+    };
+}
+
+/// Generate a global identifier in Koopa IR
+macro_rules! global_ident {
+    ($def:expr) => {
+        format!("@{}", &$def.ident)
+    };
+}
+
+/// Generate a normal identifier in Koopa IR
+macro_rules! normal_ident {
+    ($def:expr) => {
+        format!("%{}", $def.ident)
+    };
+}
+
 /*********************  Implementations  *********************/
 
 impl GenerateIr<()> for CompUnit {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
-        for comp_item in &mut self.comp_items {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
+        for comp_item in &self.comp_items {
             match comp_item {
                 CompItem::FuncDef(func_def) => {
                     func_def.generate_on(context)?;
@@ -130,9 +151,9 @@ impl GenerateIr<()> for CompUnit {
 }
 
 impl GenerateIr<()> for FuncDef {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
         let func = FunctionData::new_decl(
-            self.global_ident(),
+            global_ident!(self),
             self.params
                 .iter()
                 .map(|param| param.b_type.into())
@@ -140,13 +161,15 @@ impl GenerateIr<()> for FuncDef {
             self.func_type.into(),
         );
         let func = context.program.new_func(func);
+        context.syb_table.enter_scope();
         self.block.generate_on(context.func(func))?;
+        context.syb_table.exit_scope();
         Ok(())
     }
 }
 
 impl GenerateIr<()> for Decl {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
         match self {
             Decl::ConstDecl(const_decl) => const_decl.generate_on(context),
             Decl::VarDecl(var_decl) => var_decl.generate_on(context),
@@ -155,47 +178,50 @@ impl GenerateIr<()> for Decl {
 }
 
 impl GenerateIr<()> for Block {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
         let func_data = func_data!(context);
         let entry = new_bb!(func_data).basic_block(Some("%entry".into()));
         add_bb!(func_data, entry);
         context.block(entry);
-        for block_item in &mut self.block_items {
+
+        context.syb_table.enter_scope();
+        for block_item in &self.block_items {
             block_item.generate_on(context)?;
         }
+        context.syb_table.exit_scope();
+
         Ok(())
     }
 }
 
 impl GenerateIr<()> for BlockItem {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
         match self {
-            BlockItem::Stmt(stmt) => {
-                stmt.generate_on(context)?;
-            }
-            BlockItem::Decl(decl) => {
-                decl.generate_on(context)?;
-            }
+            BlockItem::Stmt(stmt) => stmt.generate_on(context),
+            BlockItem::Decl(decl) => decl.generate_on(context),
         }
-        Ok(())
     }
 }
 
 impl GenerateIr<()> for Stmt {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
         match self {
-            Stmt::Return(return_stmt) => {
-                return_stmt.generate_on(context)?;
+            Stmt::Empty => Ok(()),
+            Stmt::Exp(exp) => {
+                exp.generate_on(context)?;
+                Ok(())
             }
+            Stmt::Block(block) => block.generate_on(context),
+            Stmt::Assign(assign) => assign.generate_on(context),
+            Stmt::Return(stmt) => stmt.generate_on(context),
             _ => todo!(),
         }
-        Ok(())
     }
 }
 
 impl GenerateIr<()> for Return {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
-        let ret = match &mut self.exp {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
+        let ret = match &self.exp {
             Some(exp) => Some(exp.generate_on(context)?),
             None => None,
         };
@@ -207,67 +233,81 @@ impl GenerateIr<()> for Return {
     }
 }
 
+impl GenerateIr<()> for Assign {
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
+        let alloc = match context.syb_table.lookup_var(&self.l_val.ident) {
+            Some((&_, &value)) => value,
+            None => return Err(ParseError::UndefinedVarError(self.l_val.ident.clone())),
+        };
+        let exp = self.exp.generate_on(context)?;
+
+        // Store the value to the variable
+        let func_data = func_data!(context);
+        let store = new_value!(func_data).store(exp, alloc);
+        add_inst!(func_data, context.block.unwrap(), store);
+        Ok(())
+    }
+}
+
 impl GenerateIr<()> for ConstDecl {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
-        for const_def in &mut self.const_defs {
-            if const_def.array_size.is_empty() {
-                let exp = &mut const_def.const_init_val;
-                if let ConstInitVal::ConstExp(const_exp) = exp {
-                    let value = const_exp.eval()?;
-                    let value = match self.b_type {
-                        BType::Int => context.program.new_value().integer(value),
-                    };
-
-                    if !(context.func.is_none()) {
-                        let func_data = func_data!(context);
-                        let block_data = func_data.dfg().bb(context.block.unwrap());
-                        identifier_rename(&mut const_def.ident, func_data, block_data);
-                    }
-
-                    let value = context.program.new_value().global_alloc(value);
-                    context
-                        .program
-                        .set_value_name(value, Some(const_def.global_ident()));
-                } else {
-                    return Err(ParseError::AssignError(
-                        "Cannot assign array to a single value".into(),
-                    ));
-                }
-            } else {
-                // const int x[2][2] = {{1, 2}, {3, 4}};
-                // recursive, maybe?
-                todo!()
-            }
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
+        for const_def in self.const_defs.clone() {
+            context.syb_table.add_const(const_def.to_symbol(context)?);
         }
         Ok(())
     }
 }
 
 impl GenerateIr<()> for VarDecl {
-    fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
-        if let Some(_) = &context.func {
-            self.generate_on_local(context)
-        } else {
-            self.generate_on_global(context)
+    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
+        for var_def in self.var_defs.clone() {
+            // Initialize the variable if needed
+            let is_single = var_def.is_single();
+            let mut init = None;
+
+            if let Some(value) = &var_def.init_val {
+                match value {
+                    InitVal::Exp(exp) => {
+                        if !is_single {
+                            return Err(ParseError::AssignError(var_def.ident.clone()));
+                        }
+                        init = Some(exp.generate_on(context)?);
+                    }
+                    InitVal::InitVals(init_vals) => todo!(),
+                }
+            }
+
+            let func_data = func_data!(context);
+
+            // Allocate memory for the variable
+            let alloc = if is_single {
+                new_value!(func_data).alloc(self.b_type.into())
+            } else {
+                todo!()
+            };
+            set_value_name!(func_data, alloc, global_ident!(var_def));
+            add_inst!(func_data, context.block.unwrap(), alloc);
+
+            if let Some(init) = init {
+                // Store the initial value to the variable
+                let store = new_value!(func_data).store(init, alloc);
+                add_inst!(func_data, context.block.unwrap(), store);
+            }
+
+            context
+                .syb_table
+                .add_var(var_def.to_symbol(context)?, alloc);
         }
-    }
-}
-
-impl VarDecl {
-    fn generate_on_global(&self, context: &mut Context) -> Result<(), ParseError> {
-        todo!()
-    }
-
-    fn generate_on_local(&self, context: &mut Context) -> Result<(), ParseError> {
-        todo!()
+        Ok(())
     }
 }
 
 impl GenerateIr<Value> for Exp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
-        if let Ok(value) = self.eval() {
-            return PrimaryExp::Number(Number::Int(value)).generate_on(context);
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
+        if let Ok(value) = self.eval(context) {
+            return Number::Int(value).generate_on(context);
         }
+
         match self {
             Exp::LOrExp(l_or_exp) => l_or_exp.generate_on(context),
         }
@@ -275,18 +315,14 @@ impl GenerateIr<Value> for Exp {
 }
 
 impl GenerateIr<Value> for ConstExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
-        if let Ok(value) = self.eval() {
-            return PrimaryExp::Number(Number::Int(value)).generate_on(context);
-        }
-        match self {
-            ConstExp::LOrExp(l_or_exp) => l_or_exp.generate_on(context),
-        }
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
+        // Const expressions must be evaluated at compile time
+        Number::Int(self.eval(context)?).generate_on(context)
     }
 }
 
 impl GenerateIr<Value> for LOrExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
             LOrExp::LAndExp(l_and_exp) => l_and_exp.generate_on(context),
             LOrExp::LOrOpExp(op_exp) => {
@@ -295,7 +331,7 @@ impl GenerateIr<Value> for LOrExp {
                 let zero = new_value!(func_data!(context)).integer(0);
                 let func_data = func_data!(context);
 
-                // a || b = ((a | b) != 0)
+                // a || b = (a | b) != 0
                 let value = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
                 add_inst!(func_data, context.block.unwrap(), value);
                 let value = new_value!(func_data).binary(BinaryOp::NotEq, value, zero);
@@ -307,7 +343,7 @@ impl GenerateIr<Value> for LOrExp {
 }
 
 impl GenerateIr<Value> for LAndExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
             LAndExp::EqExp(eq_exp) => eq_exp.generate_on(context),
             LAndExp::LAndOpExp(op_exp) => {
@@ -330,7 +366,7 @@ impl GenerateIr<Value> for LAndExp {
 }
 
 impl GenerateIr<Value> for EqExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
             EqExp::RelExp(rel_exp) => rel_exp.generate_on(context),
             EqExp::EqOpExp(op_exp) => {
@@ -346,7 +382,7 @@ impl GenerateIr<Value> for EqExp {
 }
 
 impl GenerateIr<Value> for RelExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
             RelExp::AddExp(add_exp) => add_exp.generate_on(context),
             RelExp::RelOpExp(op_exp) => {
@@ -362,7 +398,7 @@ impl GenerateIr<Value> for RelExp {
 }
 
 impl GenerateIr<Value> for AddExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
             AddExp::MulExp(mul) => mul.generate_on(context),
             AddExp::AddOpExp(op_exp) => {
@@ -378,7 +414,7 @@ impl GenerateIr<Value> for AddExp {
 }
 
 impl GenerateIr<Value> for MulExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
             MulExp::UnaryExp(unary) => unary.generate_on(context),
             MulExp::MulOpExp(mul_op_exp) => {
@@ -394,7 +430,7 @@ impl GenerateIr<Value> for MulExp {
 }
 
 impl GenerateIr<Value> for UnaryExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
             UnaryExp::PrimaryExp(primary_exp) => primary_exp.generate_on(context),
 
@@ -414,11 +450,11 @@ impl GenerateIr<Value> for UnaryExp {
             UnaryExp::FuncCall(func_call) => {
                 let mut callee = None;
                 let mut args = vec![];
-                for arg in &mut func_call.args {
+                for arg in &func_call.args {
                     args.push(arg.generate_on(context)?);
                 }
                 for (&func, data) in context.program.funcs() {
-                    if data.name() == func_call.global_ident().as_str() {
+                    if data.name() == global_ident!(func_call).as_str() {
                         callee = Some(func);
                         break;
                     }
@@ -437,15 +473,9 @@ impl GenerateIr<Value> for UnaryExp {
 }
 
 impl GenerateIr<Value> for PrimaryExp {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
-            PrimaryExp::Number(number) => match number {
-                Number::Int(int) => {
-                    let func_data = func_data!(context);
-                    let int = new_value!(func_data).integer(*int);
-                    Ok(int)
-                }
-            },
+            PrimaryExp::Number(number) => number.generate_on(context),
             PrimaryExp::LVal(l_val) => l_val.generate_on(context),
             PrimaryExp::Exp(exp) => exp.generate_on(context),
         }
@@ -453,7 +483,34 @@ impl GenerateIr<Value> for PrimaryExp {
 }
 
 impl GenerateIr<Value> for LVal {
-    fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
-        todo!()
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
+        match context.syb_table.lookup(&self.ident) {
+            Some(item) => match &item.symbol {
+                Symbol::Const(symbol) => Number::Int(symbol.value).generate_on(context),
+                Symbol::ConstArray(symbol) => todo!(),
+                Symbol::Var(symbol) => {
+                    let alloc = item.alloc.unwrap();
+                    // load the value from the variable
+                    let func_data = func_data!(context);
+                    let value = new_value!(func_data).load(alloc);
+                    add_inst!(func_data, context.block.unwrap(), value);
+                    Ok(value)
+                }
+                Symbol::VarArray(symbol) => todo!(),
+                _ => unreachable!(),
+            },
+            None => Err(ParseError::UndefinedVarError(self.ident.clone())),
+        }
+    }
+}
+
+impl GenerateIr<Value> for Number {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
+        match self {
+            Number::Int(int) => {
+                let int = new_value!(func_data!(context)).integer(*int);
+                Ok(int)
+            }
+        }
     }
 }

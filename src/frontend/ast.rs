@@ -33,6 +33,12 @@ pub struct ConstDef {
     pub const_init_val: ConstInitVal,
 }
 
+impl ConstDef {
+    pub fn is_single(&self) -> bool {
+        self.array_size.is_empty()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ConstInitVal {
     ConstExp(ConstExp),
@@ -55,6 +61,12 @@ pub struct VarDef {
     pub ident: String,
     pub array_size: Vec<ConstExp>,
     pub init_val: Option<InitVal>,
+}
+
+impl VarDef {
+    pub fn is_single(&self) -> bool {
+        self.array_size.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]

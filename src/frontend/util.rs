@@ -3,38 +3,6 @@ use koopa::ir::FunctionData;
 
 use super::ast::*;
 
-pub trait IrIndentify {
-    fn global_ident(&self) -> String;
-    fn normal_ident(&self) -> String;
-}
-
-impl IrIndentify for FuncDef {
-    fn global_ident(&self) -> String {
-        format!("@{}", self.ident)
-    }
-    fn normal_ident(&self) -> String {
-        format!("%{}", self.ident)
-    }
-}
-
-impl IrIndentify for ConstDef {
-    fn global_ident(&self) -> String {
-        format!("@{}", self.ident)
-    }
-    fn normal_ident(&self) -> String {
-        format!("%{}", self.ident)
-    }
-}
-
-impl IrIndentify for FuncCall {
-    fn global_ident(&self) -> String {
-        format!("@{}", self.ident)
-    }
-    fn normal_ident(&self) -> String {
-        format!("%{}", self.ident)
-    }
-}
-
 pub fn identifier_rename(
     ident: &mut String,
     func_data: &FunctionData,

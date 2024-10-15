@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use super::register::Register;
 
 pub type AsmProgram = Vec<Inst>;
