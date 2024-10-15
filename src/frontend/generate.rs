@@ -2,23 +2,19 @@
 
 use super::ast::*;
 use super::eval::*;
+use super::symbol::*;
 use super::util::identifier_rename;
 use super::util::IrIndentify;
 use koopa::back::KoopaGenerator;
 use koopa::ir::builder_traits::*;
-use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Type, Value};
+use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value};
 use std::io;
 
-pub fn build_program(mut ast: CompUnit) -> Result<Program, ParseError> {
-    let mut program = Program::new();
-    let zero = program
-        .new_value()
-        .zero_init(Type::get_array(Type::get_i32(), 65536));
-    let ptr = program.new_value().global_alloc(zero);
-    program.set_value_name(ptr, Some("@data_arr".into()));
-
+pub fn build_ir(mut ast: CompUnit) -> Result<Program, ParseError> {
+    let program = Program::new();
     let mut context = Context {
         program,
+        syb_table: SymbolTable::new(),
         func: None,
         block: None,
     };
@@ -35,6 +31,7 @@ pub fn emit_ir(program: &mut Program, output: impl io::Write) -> Result<(), io::
 /// Context for current generating
 pub struct Context {
     pub program: Program,
+    pub syb_table: SymbolTable,
     pub func: Option<Function>,
     pub block: Option<BasicBlock>,
 }
@@ -248,8 +245,7 @@ impl GenerateIr<()> for ConstDecl {
 
 impl GenerateIr<()> for VarDecl {
     fn generate_on(&mut self, context: &mut Context) -> Result<(), ParseError> {
-        let program = &context.program;
-        if let Some(func) = &context.func {
+        if let Some(_) = &context.func {
             self.generate_on_local(context)
         } else {
             self.generate_on_global(context)
@@ -314,7 +310,7 @@ impl GenerateIr<Value> for LAndExp {
                 let zero = new_value!(func_data!(context)).integer(0);
                 let func_data = func_data!(context);
 
-                // a && b = (a != 0) & (b != 0)                
+                // a && b = (a != 0) & (b != 0)
                 let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
                 add_inst!(func_data, context.block.unwrap(), lhs);
                 let rhs = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);

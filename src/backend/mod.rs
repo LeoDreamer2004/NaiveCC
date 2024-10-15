@@ -1,5 +1,6 @@
-mod riscv;
-mod util;
 mod generate;
+mod instruction;
+mod register;
+mod util;
 
-pub use generate::emit_asm;
+pub use generate::{build_asm, emit_asm, AsmError};
