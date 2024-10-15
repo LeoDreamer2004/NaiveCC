@@ -61,7 +61,7 @@ pub const RA: Register = Register { name: "ra" };
 /// Global pointer
 pub const GP: Register = Register { name: "gp" };
 
-const ARGU_REGISTERS: [Register; 8] = [A0, A1, A2, A3, A4, A5, A6, A7];
+const ARGU_REGISTERS: [Register; 6] = [A2, A3, A4, A5, A6, A7];
 const SAVED_REGISTERS: [Register; 11] = [S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11];
 const TEMP_REGISTERS: [Register; 7] = [T0, T1, T2, T3, T4, T5, T6];
 
@@ -77,11 +77,11 @@ impl RegisterDispatcher {
     }
 
     pub fn alloc(&mut self) -> &'static Register {
-        // for reg in ARGU_REGISTERS.iter() {
-        //     if self.map.values().find(|&&r| r == reg).is_none() {
-        //         return reg;
-        //     }
-        // };
+        for reg in ARGU_REGISTERS.iter() {
+            if self.map.values().find(|&&r| r == reg).is_none() {
+                return reg;
+            }
+        };
         for reg in TEMP_REGISTERS.iter() {
             if self.map.values().find(|&&r| r == reg).is_none() {
                 return reg;

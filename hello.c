@@ -1,3 +1,3 @@
 int main() {
-  return !6;
+  return 1+2*3==65+9-12;
 }
