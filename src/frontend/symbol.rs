@@ -162,53 +162,8 @@ pub struct VarArraySymbol {
 
 /****************** Symbol Traits & Implementations *******************/
 
-pub trait SymbolTrait {
-    fn is_const(&self) -> bool;
-    fn is_single(&self) -> bool;
-}
-
 pub trait IntoSymbol {
     fn to_symbol(self, context: &Context) -> Result<Symbol, ParseError>;
-}
-
-impl SymbolTrait for ConstSymbol {
-    fn is_const(&self) -> bool {
-        true
-    }
-
-    fn is_single(&self) -> bool {
-        true
-    }
-}
-
-impl SymbolTrait for ConstArraySymbol {
-    fn is_const(&self) -> bool {
-        true
-    }
-
-    fn is_single(&self) -> bool {
-        false
-    }
-}
-
-impl SymbolTrait for VarSymbol {
-    fn is_const(&self) -> bool {
-        false
-    }
-
-    fn is_single(&self) -> bool {
-        true
-    }
-}
-
-impl SymbolTrait for VarArraySymbol {
-    fn is_const(&self) -> bool {
-        false
-    }
-
-    fn is_single(&self) -> bool {
-        false
-    }
 }
 
 impl IntoSymbol for ConstDef {
