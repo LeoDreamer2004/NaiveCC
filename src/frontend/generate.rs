@@ -265,6 +265,9 @@ impl VarDecl {
 
 impl GenerateIr<Value> for Exp {
     fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+        if let Ok(value) = self.eval() {
+            return PrimaryExp::Number(Number::Int(value)).generate_on(context);
+        }
         match self {
             Exp::LOrExp(l_or_exp) => l_or_exp.generate_on(context),
         }
@@ -273,6 +276,9 @@ impl GenerateIr<Value> for Exp {
 
 impl GenerateIr<Value> for ConstExp {
     fn generate_on(&mut self, context: &mut Context) -> Result<Value, ParseError> {
+        if let Ok(value) = self.eval() {
+            return PrimaryExp::Number(Number::Int(value)).generate_on(context);
+        }
         match self {
             ConstExp::LOrExp(l_or_exp) => l_or_exp.generate_on(context),
         }

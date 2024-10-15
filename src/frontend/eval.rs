@@ -23,7 +23,61 @@ impl Eval<i32> for ConstExp {
 
 impl Eval<i32> for LOrExp {
     fn eval(&self) -> Result<i32, ParseError> {
-        todo!()
+        match self {
+            LOrExp::LAndExp(exp) => exp.eval(),
+            LOrExp::LOrOpExp(op_exp) => {
+                let lhs = op_exp.l_or_exp.eval()?;
+                let rhs = op_exp.l_and_exp.eval()?;
+                Ok(if lhs != 0 || rhs != 0 { 1 } else { 0 })
+            }
+        }
+    }
+}
+
+impl Eval<i32> for LAndExp {
+    fn eval(&self) -> Result<i32, ParseError> {
+        match self {
+            LAndExp::EqExp(exp) => exp.eval(),
+            LAndExp::LAndOpExp(op_exp) => {
+                let lhs = op_exp.l_and_exp.eval()?;
+                let rhs = op_exp.eq_exp.eval()?;
+                Ok(if lhs != 0 && rhs != 0 { 1 } else { 0 })
+            }
+        }
+    }
+}
+
+impl Eval<i32> for EqExp {
+    fn eval(&self) -> Result<i32, ParseError> {
+        match self {
+            EqExp::RelExp(exp) => exp.eval(),
+            EqExp::EqOpExp(op_exp) => {
+                let lhs = op_exp.eq_exp.eval()?;
+                let rhs = op_exp.rel_exp.eval()?;
+                match op_exp.eq_op {
+                    EqOp::Eq => Ok(if lhs == rhs { 1 } else { 0 }),
+                    EqOp::Ne => Ok(if lhs != rhs { 1 } else { 0 }),
+                }
+            }
+        }
+    }
+}
+
+impl Eval<i32> for RelExp {
+    fn eval(&self) -> Result<i32, ParseError> {
+        match self {
+            RelExp::AddExp(exp) => exp.eval(),
+            RelExp::RelOpExp(op_exp) => {
+                let lhs = op_exp.rel_exp.eval()?;
+                let rhs = op_exp.add_exp.eval()?;
+                match op_exp.rel_op {
+                    RelOp::Lt => Ok(if lhs < rhs { 1 } else { 0 }),
+                    RelOp::Le => Ok(if lhs <= rhs { 1 } else { 0 }),
+                    RelOp::Gt => Ok(if lhs > rhs { 1 } else { 0 }),
+                    RelOp::Ge => Ok(if lhs >= rhs { 1 } else { 0 }),
+                }
+            }
+        }
     }
 }
 
