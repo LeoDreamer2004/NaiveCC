@@ -273,7 +273,7 @@ impl GenerateIr<()> for VarDecl {
                         }
                         init = Some(exp.generate_on(context)?);
                     }
-                    InitVal::InitVals(init_vals) => todo!(),
+                    InitVal::InitVals(_) => todo!(),
                 }
             }
 
@@ -285,7 +285,7 @@ impl GenerateIr<()> for VarDecl {
             } else {
                 todo!()
             };
-            // set_value_name!(func_data, alloc, normal_ident!(var_def));
+            set_value_name!(func_data, alloc, normal_ident!(var_def));
             add_inst!(func_data, context.block.unwrap(), alloc);
 
             if let Some(init) = init {
@@ -487,8 +487,8 @@ impl GenerateIr<Value> for LVal {
         match context.syb_table.lookup(&self.ident) {
             Some(item) => match &item.symbol {
                 Symbol::Const(symbol) => symbol.value.clone().generate_on(context),
-                Symbol::ConstArray(symbol) => todo!(),
-                Symbol::Var(symbol) => {
+                Symbol::ConstArray(_) => todo!(),
+                Symbol::Var(_) => {
                     let alloc = item.alloc.unwrap();
                     // load the value from the variable
                     let func_data = func_data!(context);
@@ -496,7 +496,7 @@ impl GenerateIr<Value> for LVal {
                     add_inst!(func_data, context.block.unwrap(), value);
                     Ok(value)
                 }
-                Symbol::VarArray(symbol) => todo!(),
+                Symbol::VarArray(_) => todo!(),
                 _ => unreachable!(),
             },
             None => Err(ParseError::UndefinedVarError(self.ident.clone())),

@@ -1,11 +1,14 @@
-use koopa::ir::FunctionData;
+use koopa::ir::Type;
 
-pub trait AsmIdentify {
-    fn original_ident(&self) -> String;
+pub trait AsmType {
+    fn size(&self) -> usize;
 }
 
-impl AsmIdentify for FunctionData {
-    fn original_ident(&self) -> String {
-        self.name()[1..].to_string()
+impl AsmType for Type {
+    fn size(&self) -> usize {
+        if self.is_i32() {
+            return 4;
+        }
+        todo!()
     }
 }

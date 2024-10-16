@@ -1,8 +1,10 @@
-use super::register::Register;
+use super::register::ConstRegister;
 
 pub type AsmProgram = Vec<Inst>;
 
+#[derive(Debug)]
 pub enum Inst {
+    Placeholder,
     Label(String),
     Directive(Directive),
     Beqz(Beqz),
@@ -39,6 +41,7 @@ pub enum Inst {
 impl Inst {
     pub fn dump(&self) -> String {
         match self {
+            Inst::Placeholder => String::new(),
             Inst::Label(label) => format!("{}:", label),
             Inst::Directive(directive) => directive.dump(),
             Inst::Beqz(beqz) => format!("beqz\t{}, {}", beqz.rs, beqz.label),
@@ -74,6 +77,7 @@ impl Inst {
     }
 }
 
+#[derive(Debug)]
 pub enum Directive {
     Text,
     Data,
@@ -95,189 +99,218 @@ impl Directive {
 }
 
 /// go to the label if rs is zero.
+#[derive(Debug, Default)]
 pub struct Beqz {
-    pub rs: &'static Register,
+    pub rs: ConstRegister,
     pub label: String,
 }
 
 /// go to the label if rs is not zero.
+#[derive(Debug, Default)]
 pub struct Bnez {
-    pub rs: &'static Register,
+    pub rs: ConstRegister,
     pub label: String,
 }
 
 /// go to the label.
+#[derive(Debug, Default)]
 pub struct J {
     pub label: String,
 }
 
 /// call the function.
+#[derive(Debug, Default)]
 pub struct Call {
     pub label: String,
 }
 
 /// return from the function.
+#[derive(Debug, Default)]
 pub struct Ret {}
 
 /// load the memory at rs + offset to rd.
+#[derive(Debug, Default)]
 pub struct Lw {
-    pub rd: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
     pub offset: i32,
-    pub rs: &'static Register,
 }
 
-/// store the memory at rs1 + offset to rs2.
+/// store the memory at rs1 + offset from rs2.
+#[derive(Debug, Default)]
 pub struct Sw {
-    pub rs2: &'static Register,
+    pub rs2: ConstRegister,
     pub offset: i32,
-    pub rs1: &'static Register,
+    pub rs1: ConstRegister,
 }
 
 /// add rs1 and rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Add {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// add rs and imm, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Addi {
-    pub rd: &'static Register,
-    pub rs: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
     pub imm: i32,
 }
 
 /// subtract rs2 from rs1, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Sub {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// compare if rs1 is less than rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Slt {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// compare if rs1 is greater than rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Sgt {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// Judge if rs is zero, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct SeqZ {
-    pub rd: &'static Register,
-    pub rs: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
 }
 
 /// Judge if rs is not zero, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct SneZ {
-    pub rd: &'static Register,
-    pub rs: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
 }
 
 /// calculate the bitwise xor of rs1 and rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Xor {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// calculate the bitwise xor of rs and imm, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Xori {
-    pub rd: &'static Register,
-    pub rs: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
     pub imm: i32,
 }
 
 /// calculate the bitwise or of rs1 and rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Or {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// calculate the bitwise or of rs and imm, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Ori {
-    pub rd: &'static Register,
-    pub rs: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
     pub imm: i32,
 }
 
 /// calculate the bitwise and of rs1 and rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct And {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// calculate the bitwise and of rs and imm, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Andi {
-    pub rd: &'static Register,
-    pub rs: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
     pub imm: i32,
 }
 
 /// shift left logical rs1 by rs2 bits, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Sll {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// shift right logical rs1 by rs2 bits, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Srl {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// shift right arithmetic rs1 by rs2 bits, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Sra {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// multiply rs1 and rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Mul {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// divide rs1 by rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Div {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// calculate the remainder of rs1 divided by rs2, and store the result to rd.
+#[derive(Debug, Default)]
 pub struct Rem {
-    pub rd: &'static Register,
-    pub rs1: &'static Register,
-    pub rs2: &'static Register,
+    pub rd: ConstRegister,
+    pub rs1: ConstRegister,
+    pub rs2: ConstRegister,
 }
 
 /// load the immediate value to rd.
+#[derive(Debug, Default)]
 pub struct Li {
-    pub rd: &'static Register,
+    pub rd: ConstRegister,
     pub imm: i32,
 }
 
 /// load the address of the label to rd.
+#[derive(Debug, Default)]
 pub struct La {
-    pub rd: &'static Register,
+    pub rd: ConstRegister,
     pub label: String,
 }
 
 /// move the value of rs to rd.
+#[derive(Debug, Default)]
 pub struct Mv {
-    pub rd: &'static Register,
-    pub rs: &'static Register,
+    pub rd: ConstRegister,
+    pub rs: ConstRegister,
 }
