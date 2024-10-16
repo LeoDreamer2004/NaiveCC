@@ -179,7 +179,7 @@ impl RegisterDispatcher {
     pub fn new_frame(&mut self, asm: &mut AsmProgram) {
         self.frame_sizes.push_back(0);
 
-        // Add a structure here, waiting for update when the frame size is known.
+        // add a placeholder here, waiting for update when the frame size is known.
         asm.push(Inst::Placeholder);
     }
 
@@ -188,8 +188,10 @@ impl RegisterDispatcher {
             .frame_sizes
             .pop_back()
             .ok_or(AsmError::InvalidStackFrame)?;
+        // align to 16
+        let size = ((size + 15) & !15) as i32;
 
-        // in
+        // get into stack
         let mut idx = asm.len();
         let mut flag = false;
         for inst in asm.into_iter().rev() {
@@ -208,14 +210,14 @@ impl RegisterDispatcher {
         asm[idx] = Inst::Addi(Addi {
             rd: &SP,
             rs: &SP,
-            imm: -(size as i32),
+            imm: -size,
         });
 
-        // out
+        // get out of stack
         asm.push(Inst::Addi(Addi {
             rd: &SP,
             rs: &SP,
-            imm: size as i32,
+            imm: size,
         }));
         Ok(())
     }

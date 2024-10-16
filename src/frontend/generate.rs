@@ -180,26 +180,26 @@ impl GenerateIr<()> for Decl {
 impl GenerateIr<()> for Block {
     fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
         let func_data = func_data!(context);
-        let entry = new_bb!(func_data).basic_block(Some("%entry".into()));
+        let entry = new_bb!(func_data).basic_block(None);
         add_bb!(func_data, entry);
         context.block(entry);
 
         context.syb_table.enter_scope();
         for block_item in &self.block_items {
-            block_item.generate_on(context)?;
+            match block_item {
+                BlockItem::Stmt(stmt) => match stmt {
+                    Stmt::Return(_) => {
+                        stmt.generate_on(context)?;
+                        break;
+                    }
+                    _ => stmt.generate_on(context)?,
+                },
+                BlockItem::Decl(decl) => decl.generate_on(context)?,
+            };
         }
         context.syb_table.exit_scope();
 
         Ok(())
-    }
-}
-
-impl GenerateIr<()> for BlockItem {
-    fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
-        match self {
-            BlockItem::Stmt(stmt) => stmt.generate_on(context),
-            BlockItem::Decl(decl) => decl.generate_on(context),
-        }
     }
 }
 
