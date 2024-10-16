@@ -211,8 +211,8 @@ impl GenerateIr<()> for Stmt {
                 exp.generate_on(context)?;
                 Ok(())
             }
-            Stmt::Block(block) => block.generate_on(context),
-            Stmt::Assign(assign) => assign.generate_on(context),
+            Stmt::Block(stmt) => stmt.generate_on(context),
+            Stmt::Assign(stmt) => stmt.generate_on(context),
             Stmt::Return(stmt) => stmt.generate_on(context),
             _ => todo!(),
         }
@@ -285,7 +285,7 @@ impl GenerateIr<()> for VarDecl {
             } else {
                 todo!()
             };
-            set_value_name!(func_data, alloc, global_ident!(var_def));
+            set_value_name!(func_data, alloc, normal_ident!(var_def));
             add_inst!(func_data, context.block.unwrap(), alloc);
 
             if let Some(init) = init {
@@ -305,7 +305,7 @@ impl GenerateIr<()> for VarDecl {
 impl GenerateIr<Value> for Exp {
     fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         if let Ok(value) = self.eval(context) {
-            return Number::Int(value).generate_on(context);
+            return value.generate_on(context);
         }
 
         match self {
@@ -317,7 +317,7 @@ impl GenerateIr<Value> for Exp {
 impl GenerateIr<Value> for ConstExp {
     fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         // Const expressions must be evaluated at compile time
-        Number::Int(self.eval(context)?).generate_on(context)
+        self.eval(context)?.generate_on(context)
     }
 }
 
@@ -486,7 +486,7 @@ impl GenerateIr<Value> for LVal {
     fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match context.syb_table.lookup(&self.ident) {
             Some(item) => match &item.symbol {
-                Symbol::Const(symbol) => Number::Int(symbol.value).generate_on(context),
+                Symbol::Const(symbol) => symbol.value.clone().generate_on(context),
                 Symbol::ConstArray(symbol) => todo!(),
                 Symbol::Var(symbol) => {
                     let alloc = item.alloc.unwrap();
@@ -507,10 +507,14 @@ impl GenerateIr<Value> for LVal {
 impl GenerateIr<Value> for Number {
     fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
         match self {
-            Number::Int(int) => {
-                let int = new_value!(func_data!(context)).integer(*int);
-                Ok(int)
-            }
+            Number::Int(int) => int.generate_on(context),
         }
+    }
+}
+
+impl GenerateIr<Value> for i32 {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, ParseError> {
+        let int = new_value!(func_data!(context)).integer(*self);
+        Ok(int)
     }
 }

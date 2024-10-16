@@ -1,8 +1,6 @@
 use koopa::ir::entities::BasicBlockData;
 use koopa::ir::FunctionData;
 
-use super::ast::*;
-
 pub fn identifier_rename(
     ident: &mut String,
     func_data: &FunctionData,
