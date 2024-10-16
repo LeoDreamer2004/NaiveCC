@@ -285,7 +285,7 @@ impl GenerateIr<()> for VarDecl {
             } else {
                 todo!()
             };
-            set_value_name!(func_data, alloc, normal_ident!(var_def));
+            // set_value_name!(func_data, alloc, normal_ident!(var_def));
             add_inst!(func_data, context.block.unwrap(), alloc);
 
             if let Some(init) = init {

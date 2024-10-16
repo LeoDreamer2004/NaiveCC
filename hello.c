@@ -1,7 +1,7 @@
 int main() {
   const int z = 10;
 {
-  const int x = 10, y = 0;
+  int x = 10, y;
   return 9*x*z;
 }
   return 20*z;
