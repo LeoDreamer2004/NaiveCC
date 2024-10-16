@@ -1,5 +1,6 @@
 use super::instruction::*;
 use super::register::{self, ConstRegister, RegisterDispatcher};
+use crate::common::IDGenerator;
 use koopa::ir::entities::ValueData;
 use koopa::ir::{BinaryOp, Function, FunctionData, Program, Value, ValueKind};
 use std::io::Write;
@@ -10,6 +11,7 @@ pub trait GenerateAsm<T> {
 
 pub struct Context<'a> {
     pub dispatcher: RegisterDispatcher,
+    pub label_gen: IDGenerator<Inst>,
 
     pub program: &'a Program,
     pub function: Option<Function>,
@@ -58,6 +60,7 @@ impl GenerateAsm<()> for FunctionData {
         asm.push(Inst::Label(original_ident!(self)));
         context.dispatcher.new_frame(asm);
         for (&_, node) in self.layout().bbs() {
+            asm.push(Inst::Label(format!(".l{}", context.label_gen.generate())));
             for &inst in node.insts().keys() {
                 context.value = Some(inst);
                 self.dfg().value(inst).generate_on(context, asm)?;
@@ -200,6 +203,7 @@ pub fn build_asm(ir_program: Program) -> Result<AsmProgram, AsmError> {
     let mut asm = AsmProgram::new();
     let mut context = Context {
         dispatcher: RegisterDispatcher::default(),
+        label_gen: IDGenerator::new(),
 
         program: &ir_program,
         function: None,

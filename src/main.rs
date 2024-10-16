@@ -13,6 +13,7 @@ use std::io;
 
 mod backend;
 mod frontend;
+mod common;
 
 lalrpop_mod!(sysy);
 

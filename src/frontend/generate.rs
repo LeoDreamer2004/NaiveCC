@@ -64,8 +64,6 @@ trait GenerateIr<T> {
     fn generate_on(&self, context: &mut Context) -> Result<T, ParseError>;
 }
 
-/*********************  Macros  *********************/
-
 /// Create a new [`BasicBlock`] in [`Function`]
 macro_rules! new_bb {
     ($func:expr) => {

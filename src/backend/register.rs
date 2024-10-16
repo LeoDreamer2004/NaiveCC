@@ -1,4 +1,3 @@
-use super::util::*;
 use super::{instruction::*, AsmError};
 use koopa::ir::entities::ValueData;
 use std::collections::{HashSet, LinkedList};
