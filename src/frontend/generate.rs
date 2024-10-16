@@ -9,13 +9,7 @@ use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value};
 use std::io;
 
 pub fn build_ir(ast: CompUnit) -> Result<Program, ParseError> {
-    let program = Program::new();
-    let mut context = Context {
-        program,
-        syb_table: SymbolTable::default(),
-        func: None,
-        block: None,
-    };
+    let mut context = Context::default();
     ast.generate_on(&mut context)?;
     Ok(context.program)
 }
@@ -27,6 +21,7 @@ pub fn emit_ir(program: &mut Program, output: impl io::Write) -> Result<(), io::
 /*********************  Structs  *********************/
 
 /// Context for current generating
+#[derive(Default)]
 pub struct Context {
     pub program: Program,
     pub syb_table: SymbolTable,
@@ -160,10 +155,13 @@ impl GenerateIr<()> for FuncDef {
                 .collect(),
             self.func_type.into(),
         );
+
         let func = context.program.new_func(func);
         context.syb_table.enter_scope();
         self.block.generate_on(context.func(func))?;
         context.syb_table.exit_scope();
+        func_data!(context).layout_mut().bbs_mut().pop_back();
+
         Ok(())
     }
 }
@@ -179,26 +177,44 @@ impl GenerateIr<()> for Decl {
 
 impl GenerateIr<()> for Block {
     fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
-        let func_data = func_data!(context);
-        let entry = new_bb!(func_data).basic_block(None);
-        add_bb!(func_data, entry);
-        context.block(entry);
+        if self.block_items.is_empty() {
+            return Ok(());
+        }
 
         context.syb_table.enter_scope();
+
+        let func_data = func_data!(context);
+        let this = new_bb!(func_data).basic_block(None);
+        add_bb!(func_data, this);
+        func_data.layout_mut().bb_mut(this);
+
+        context.block(this);
+
         for block_item in &self.block_items {
             match block_item {
-                BlockItem::Stmt(stmt) => match stmt {
-                    Stmt::Return(_) => {
-                        stmt.generate_on(context)?;
-                        break;
+                BlockItem::Stmt(stmt) => {
+                    stmt.generate_on(context)?;
+                    match stmt {
+                        Stmt::Return(_) => {
+                            break;
+                        }
+                        Stmt::Break => {
+                            break;
+                        }
+                        Stmt::Continue => {
+                            break;
+                        }
+                        _ => {}
                     }
-                    _ => stmt.generate_on(context)?,
-                },
+                }
                 BlockItem::Decl(decl) => decl.generate_on(context)?,
             };
         }
         context.syb_table.exit_scope();
 
+        let next = new_bb!(func_data!(context)).basic_block(None);
+        add_bb!(func_data!(context), next);
+        context.block(next);
         Ok(())
     }
 }

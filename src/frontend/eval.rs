@@ -1,4 +1,4 @@
-use super::{ast::*, symbol};
+use super::ast::*;
 use super::generate::Context;
 use super::ParseError;
 
