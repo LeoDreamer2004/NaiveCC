@@ -4,6 +4,7 @@ pub type AsmProgram = Vec<Inst>;
 
 #[derive(Debug)]
 pub enum Inst {
+    Nop,
     Placeholder,
     Label(String),
     Directive(Directive),
@@ -41,8 +42,9 @@ pub enum Inst {
 impl Inst {
     pub fn dump(&self) -> String {
         match self {
+            Inst::Nop => String::new(),
             Inst::Placeholder => String::new(),
-            Inst::Label(label) => format!("{}:", label),
+            Inst::Label(label) => format!("\n{}:", label),
             Inst::Directive(directive) => format!("{}", directive.dump()),
             Inst::Beqz(beqz) => format!("beqz {}, {}", beqz.0, beqz.1),
             Inst::Bnez(bnez) => format!("bnez {}, {}", bnez.0, bnez.1),

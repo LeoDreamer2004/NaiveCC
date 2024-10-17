@@ -210,23 +210,22 @@ impl RegisterDispatcher {
         let size = ((size + 15) & !15) as i32;
 
         // get into stack
-        let mut idx = asm.len();
         let mut flag = false;
-        for inst in asm.into_iter().rev() {
-            idx -= 1;
+        for inst in asm.iter_mut().rev() {
             if let Inst::Placeholder = inst {
                 flag = true;
+                if size == 0 {
+                    *inst = Inst::Nop;
+                    return Ok(());
+                } else {
+                    *inst = Inst::Addi(Addi(&SP, &SP, -size));
+                }
                 break;
             }
         }
         if !flag {
             return Err(AsmError::InvalidStackFrame);
-        } else if size == 0 {
-            return Ok(());
         }
-
-        asm[idx] = Inst::Addi(Addi(&SP, &SP, -size));
-
         // get out of stack
         asm.push(Inst::Addi(Addi(&SP, &SP, size)));
         Ok(())

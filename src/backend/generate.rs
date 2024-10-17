@@ -1,5 +1,5 @@
 use super::instruction::*;
-use super::register::{self, RiscVRegister, RegisterDispatcher, RegisterType};
+use super::register::{self, RegisterDispatcher, RegisterType, RiscVRegister};
 use crate::common::IDGenerator;
 use koopa::ir::entities::ValueData;
 use koopa::ir::{BinaryOp, Function, FunctionData, Program, Value, ValueKind};
@@ -66,6 +66,8 @@ impl GenerateAsm<()> for FunctionData {
                 self.dfg().value(inst).generate_on(context, asm)?;
             }
         }
+        context.dispatcher.end_frame(asm)?;
+        // dbg!(&context.dispatcher);
         Ok(())
     }
 }
@@ -145,7 +147,6 @@ impl GenerateAsm<()> for ValueData {
                 if let Some(value) = ret.value() {
                     let rs = value.into_element().generate_on(context, asm)?;
                     asm.push(Inst::Mv(Mv(&register::A0, rs)));
-                    context.dispatcher.end_frame(asm)?;
                     asm.push(Inst::Ret(Ret {}));
                 }
                 Ok(())
