@@ -1,5 +1,10 @@
 int main() {
-  if (5 > 0) {
-    return 1;
-  } else {return 2;};
-return 0;}
+  int a = 1;
+  {
+    a = a + 2;
+    int a = 3;
+    a = a + 4;
+  }
+  a = a + 5;
+  return a;
+}

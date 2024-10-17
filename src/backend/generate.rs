@@ -179,15 +179,14 @@ impl GenerateAsm<RiscVRegister> for ElementData {
         asm: &mut AsmProgram,
     ) -> Result<RiscVRegister, AsmError> {
         let data = value_data!(context, self.value);
-        match value_data!(context, self.value).kind() {
+        match data.kind() {
             ValueKind::Integer(int) => {
-                let rd = context.dispatcher.dispatch(RegisterType::Local);
                 let imm = int.value();
                 if imm == 0 {
                     // simple optimization for zero
                     return Ok(&register::ZERO);
                 };
-
+                let rd = context.dispatcher.dispatch(RegisterType::Local);
                 asm.push(Inst::Li(Li(rd, imm)));
                 Ok(rd)
             }

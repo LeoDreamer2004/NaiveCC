@@ -344,14 +344,13 @@ impl GenerateIr<()> for VarDecl {
             } else {
                 todo!()
             };
+            context.add_inst(alloc);
 
             if let Some(init) = init {
                 // Store the initial value to the variable
-                let store = new_value!(func_data).store(init, alloc);
+                let store = new_value!(context.func_data()).store(init, alloc);
                 context.add_inst(store);
             }
-
-            context.add_inst(alloc);
 
             context
                 .syb_table

@@ -29,13 +29,8 @@ pub enum Error {
     Asm(backend::AsmError),
 }
 
-fn main() {
-    let debug = true;
-    if debug {
-        _debug();
-    } else {
-        _main().unwrap();
-    }
+fn main() -> Result<(), Error> {
+    _main()
 }
 
 fn _debug() {
