@@ -390,9 +390,9 @@ impl GenerateIr<Value> for LOrExp {
 
                 // a || b = (a | b) != 0
                 let zero = new_value!(func_data).integer(0);
-                let value = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
-                let value = new_value!(func_data).binary(BinaryOp::NotEq, value, zero);
-                context.add_inst(value);
+                let temp = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
+                let value = new_value!(func_data).binary(BinaryOp::NotEq, temp, zero);
+                context.add_inst(temp);
                 context.add_inst(value);
                 Ok(value)
             }
@@ -547,11 +547,13 @@ impl GenerateIr<Value> for LVal {
                 Symbol::Const(symbol) => symbol.value.clone().generate_on(context),
                 Symbol::ConstArray(_) => todo!(),
                 Symbol::Var(_) => {
-                    let alloc = item.alloc.unwrap();
+                    let alloc = item
+                        .alloc
+                        .ok_or(AstError::UndefinedVarError(self.ident.clone()))?;
                     // load the value from the variable
-                    let value = new_value!(context.func_data()).load(alloc);
-                    context.add_inst(value);
-                    Ok(value)
+                    let load = new_value!(context.func_data()).load(alloc);
+                    context.add_inst(load);
+                    Ok(load)
                 }
                 Symbol::VarArray(_) => todo!(),
                 _ => unreachable!(),

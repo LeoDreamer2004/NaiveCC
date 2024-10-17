@@ -29,34 +29,38 @@ pub enum Error {
     Asm(backend::AsmError),
 }
 
-fn main() -> Result<(), Error> {
-    _main()
+fn main() {
+    let args = parse_cmd_args().unwrap();
+    if args.local {
+        _main(args).unwrap();
+    } else {
+        _handin(args);
+    }
 }
 
-fn _debug() {
-    if let Err(e) = _main() {
+fn _handin(args: CommandLineArgs) {
+    if let Err(e) = _main(args) {
         match e {
-            Error::Parse => exit(600),
+            Error::Parse => exit(60),
             Error::Ir(err) => match err {
-                AstError::AssignError(_) => exit(701),
-                AstError::FunctionNotFoundError(_) => exit(702),
-                AstError::IllegalConstExpError(_) => exit(703),
-                AstError::UndefinedConstError(_) => exit(704),
-                AstError::UndefinedVarError(_) => exit(705),
-                AstError::UnknownError(_) => exit(706),
+                AstError::AssignError(_) => exit(71),
+                AstError::FunctionNotFoundError(_) => exit(72),
+                AstError::IllegalConstExpError(_) => exit(73),
+                AstError::UndefinedConstError(_) => exit(74),
+                AstError::UndefinedVarError(_) => exit(75),
+                AstError::UnknownError(_) => exit(76),
             },
             Error::Asm(err) => match err {
-                AsmError::FunctionNotFound(_) => exit(801),
-                AsmError::InvalidStackFrame => exit(802),
-                AsmError::RegisterNotAssigned(_) => exit(803),
+                AsmError::FunctionNotFound(_) => exit(81),
+                AsmError::InvalidStackFrame => exit(82),
+                AsmError::RegisterNotAssigned(_) => exit(83),
             },
-            _ => exit(400),
+            _ => exit(40),
         }
     }
 }
 
-fn _main() -> Result<(), Error> {
-    let args = parse_cmd_args()?;
+fn _main(args: CommandLineArgs) -> Result<(), Error> {
     let input = read_to_string(args.input).map_err(Error::InvalidFile)?;
     let output = if let Some(path) = args.output {
         let file = File::create(path).map_err(Error::InvalidFile)?;
@@ -65,7 +69,9 @@ fn _main() -> Result<(), Error> {
         Box::new(io::stdout())
     };
 
-    let ast = sysy::CompUnitParser::new().parse(&input).map_err(|_| Error::Parse)?;
+    let ast = sysy::CompUnitParser::new()
+        .parse(&input)
+        .map_err(|_| Error::Parse)?;
     let mut program = build_ir(ast).map_err(Error::Ir)?;
     // println!("{:#?}", ast);
     match args.mode {
@@ -91,7 +97,17 @@ fn parse_cmd_args() -> Result<CommandLineArgs, Error> {
     }
     cmd_args.input = args.next().unwrap();
     args.next();
-    cmd_args.output = args.next();
+    cmd_args.output = match args.next() {
+        Some(s) => {
+            if s.as_str() == "-local" {
+                cmd_args.local = true;
+                None
+            } else {
+                s.into()
+            }
+        }
+        _ => None,
+    };
     Ok(cmd_args)
 }
 
@@ -100,6 +116,7 @@ struct CommandLineArgs {
     mode: Mode,
     input: String,
     output: Option<String>,
+    local: bool,
 }
 
 #[derive(Debug, Default)]
