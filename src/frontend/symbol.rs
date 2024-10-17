@@ -8,7 +8,7 @@ use koopa::ir::Value;
 /// Implemented as a stack of scopes
 #[derive(Debug, Default)]
 pub struct SymbolTable {
-    items: Vec<SymbolTableItem>,
+    pub items: Vec<SymbolTableItem>,
 }
 
 #[derive(Debug)]

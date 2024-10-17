@@ -1,4 +1,4 @@
-use super::register::ConstRegister;
+use super::register::RiscVRegister;
 
 pub type AsmProgram = Vec<Inst>;
 
@@ -43,36 +43,36 @@ impl Inst {
         match self {
             Inst::Placeholder => String::new(),
             Inst::Label(label) => format!("{}:", label),
-            Inst::Directive(directive) => directive.dump(),
-            Inst::Beqz(beqz) => format!("beqz\t{}, {}", beqz.rs, beqz.label),
-            Inst::Bnez(bnez) => format!("bnez\t{}, {}", bnez.rs, bnez.label),
-            Inst::J(j) => format!("j\t{}", j.label),
-            Inst::Call(call) => format!("call\t{}", call.label),
-            Inst::Ret(_) => String::from("ret"),
-            Inst::Lw(lw) => format!("lw\t{}, {}({})", lw.rd, lw.offset, lw.rs),
-            Inst::Sw(sw) => format!("sw\t{}, {}({})", sw.rs2, sw.offset, sw.rs1),
-            Inst::Add(add) => format!("add\t{}, {}, {}", add.rd, add.rs1, add.rs2),
-            Inst::Addi(addi) => format!("addi\t{}, {}, {}", addi.rd, addi.rs, addi.imm),
-            Inst::Sub(sub) => format!("sub\t{}, {}, {}", sub.rd, sub.rs1, sub.rs2),
-            Inst::Slt(slt) => format!("slt\t{}, {}, {}", slt.rd, slt.rs1, slt.rs2),
-            Inst::Sgt(sgt) => format!("sgt\t{}, {}, {}", sgt.rd, sgt.rs1, sgt.rs2),
-            Inst::SeqZ(seqz) => format!("seqz\t{}, {}", seqz.rd, seqz.rs),
-            Inst::SneZ(snez) => format!("snez\t{}, {}", snez.rd, snez.rs),
-            Inst::Xor(xor) => format!("xor\t{}, {}, {}", xor.rd, xor.rs1, xor.rs2),
-            Inst::Xori(xori) => format!("xori\t{}, {}, {}", xori.rd, xori.rs, xori.imm),
-            Inst::Or(or) => format!("or\t{}, {}, {}", or.rd, or.rs1, or.rs2),
-            Inst::Ori(ori) => format!("ori\t{}, {}, {}", ori.rd, ori.rs, ori.imm),
-            Inst::And(and) => format!("and\t{}, {}, {}", and.rd, and.rs1, and.rs2),
-            Inst::Andi(andi) => format!("andi\t{}, {}, {}", andi.rd, andi.rs, andi.imm),
-            Inst::Sll(sll) => format!("sll\t{}, {}, {}", sll.rd, sll.rs1, sll.rs2),
-            Inst::Srl(srl) => format!("srl\t{}, {}, {}", srl.rd, srl.rs1, srl.rs2),
-            Inst::Sra(sra) => format!("sra\t{}, {}, {}", sra.rd, sra.rs1, sra.rs2),
-            Inst::Mul(mul) => format!("mul\t{}, {}, {}", mul.rd, mul.rs1, mul.rs2),
-            Inst::Div(div) => format!("div\t{}, {}, {}", div.rd, div.rs1, div.rs2),
-            Inst::Rem(rem) => format!("rem\t{}, {}, {}", rem.rd, rem.rs1, rem.rs2),
-            Inst::Li(li) => format!("li\t{}, {}", li.rd, li.imm),
-            Inst::La(la) => format!("la\t{}, {}", la.rd, la.label),
-            Inst::Mv(mv) => format!("mv\t{}, {}", mv.rd, mv.rs),
+            Inst::Directive(directive) => format!("{}", directive.dump()),
+            Inst::Beqz(beqz) => format!("beqz {}, {}", beqz.0, beqz.1),
+            Inst::Bnez(bnez) => format!("bnez {}, {}", bnez.0, bnez.1),
+            Inst::J(j) => format!("j {}", j.0),
+            Inst::Call(call) => format!("call {}", call.0),
+            Inst::Ret(_) => format!("ret"),
+            Inst::Lw(lw) => format!("lw {}, {}({})", lw.0, lw.2, lw.1),
+            Inst::Sw(sw) => format!("sw {}, {}({})", sw.0, sw.2, sw.1),
+            Inst::Add(add) => format!("add {}, {}, {}", add.0, add.1, add.2),
+            Inst::Addi(addi) => format!("addi {}, {}, {}", addi.0, addi.1, addi.2),
+            Inst::Sub(sub) => format!("sub {}, {}, {}", sub.0, sub.1, sub.2),
+            Inst::Slt(slt) => format!("slt {}, {}, {}", slt.0, slt.1, slt.2),
+            Inst::Sgt(sgt) => format!("sgt {}, {}, {}", sgt.0, sgt.1, sgt.2),
+            Inst::SeqZ(seq_z) => format!("seqz {}, {}", seq_z.0, seq_z.1),
+            Inst::SneZ(sne_z) => format!("snez {}, {}", sne_z.0, sne_z.1),
+            Inst::Xor(xor) => format!("xor {}, {}, {}", xor.0, xor.1, xor.2),
+            Inst::Xori(xori) => format!("xori {}, {}, {}", xori.0, xori.1, xori.2),
+            Inst::Or(or) => format!("or {}, {}, {}", or.0, or.1, or.2),
+            Inst::Ori(ori) => format!("ori {}, {}, {}", ori.0, ori.1, ori.2),
+            Inst::And(and) => format!("and {}, {}, {}", and.0, and.1, and.2),
+            Inst::Andi(andi) => format!("andi {}, {}, {}", andi.0, andi.1, andi.2),
+            Inst::Sll(sll) => format!("sll {}, {}, {}", sll.0, sll.1, sll.2),
+            Inst::Srl(srl) => format!("srl {}, {}, {}", srl.0, srl.1, srl.2),
+            Inst::Sra(sra) => format!("sra {}, {}, {}", sra.0, sra.1, sra.2),
+            Inst::Mul(mul) => format!("mul {}, {}, {}", mul.0, mul.1, mul.2),
+            Inst::Div(div) => format!("div {}, {}, {}", div.0, div.1, div.2),
+            Inst::Rem(rem) => format!("rem {}, {}, {}", rem.0, rem.1, rem.2),
+            Inst::Li(li) => format!("li {}, {}", li.0, li.1),
+            Inst::La(la) => format!("la {}, {}", la.0, la.1),
+            Inst::Mv(mv) => format!("mv {}, {}", mv.0, mv.1),
         }
     }
 }
@@ -83,7 +83,7 @@ pub enum Directive {
     Data,
     Globl(String),
     Asciz(String),
-    Word(i32),
+    Word(Immediate),
 }
 
 impl Directive {
@@ -98,219 +98,120 @@ impl Directive {
     }
 }
 
-/// go to the label if rs is zero.
-#[derive(Debug, Default)]
-pub struct Beqz {
-    pub rs: ConstRegister,
-    pub label: String,
-}
+pub type Immediate = i32;
 
-/// go to the label if rs is not zero.
+/// **Beqz(rs, label)**: go to the label if rs is zero.
 #[derive(Debug, Default)]
-pub struct Bnez {
-    pub rs: ConstRegister,
-    pub label: String,
-}
+pub struct Beqz(pub RiscVRegister, pub String);
 
-/// go to the label.
+/// **Bnez(rs, label)**: go to the label if rs is not zero.
 #[derive(Debug, Default)]
-pub struct J {
-    pub label: String,
-}
+pub struct Bnez(pub RiscVRegister, pub String);
 
-/// call the function.
+/// **J(label)**: jump to the label.
 #[derive(Debug, Default)]
-pub struct Call {
-    pub label: String,
-}
+pub struct J(pub String);
 
-/// return from the function.
+/// **Call(label)**: call the function.
 #[derive(Debug, Default)]
-pub struct Ret {}
+pub struct Call(pub String);
 
-/// load the memory at rs + offset to rd.
+/// **Ret**: return from the function.
 #[derive(Debug, Default)]
-pub struct Lw {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-    pub offset: i32,
-}
+pub struct Ret;
 
-/// store the memory at rs1 + offset from rs2.
+/// **Lw(rd, rs, offset)**: load the memory at rs + offset to rd.
 #[derive(Debug, Default)]
-pub struct Sw {
-    pub rs2: ConstRegister,
-    pub offset: i32,
-    pub rs1: ConstRegister,
-}
+pub struct Lw(pub RiscVRegister, pub RiscVRegister, pub Immediate);
 
-/// add rs1 and rs2, and store the result to rd.
+/// **Sw(rs2, rs1, offset)**: store the value of rs2 to rs1 + offset.
 #[derive(Debug, Default)]
-pub struct Add {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Sw(pub RiscVRegister, pub RiscVRegister, pub Immediate);
 
-/// add rs and imm, and store the result to rd.
+/// **Add(rd, rs1, rs2)**: add rs1 and rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Addi {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-    pub imm: i32,
-}
+pub struct Add(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// subtract rs2 from rs1, and store the result to rd.
+/// **Addi(rd, rs, imm)**: add rs and imm, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Sub {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Addi(pub RiscVRegister, pub RiscVRegister, pub Immediate);
 
-/// compare if rs1 is less than rs2, and store the result to rd.
+/// **Sub(rd, rs1, rs2)**: subtract rs2 from rs1, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Slt {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Sub(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// compare if rs1 is greater than rs2, and store the result to rd.
+/// **Slt(rd, rs1, rs2)**: compare if rs1 is less than rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Sgt {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Slt(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// Judge if rs is zero, and store the result to rd.
+/// **Sgt(rd, rs1, rs2)**: compare if rs1 is greater than rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct SeqZ {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-}
+pub struct Sgt(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// Judge if rs is not zero, and store the result to rd.
+/// **SeqZ(rd, rs)**: Judge if rs is zero, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct SneZ {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-}
+pub struct SeqZ(pub RiscVRegister, pub RiscVRegister);
 
-/// calculate the bitwise xor of rs1 and rs2, and store the result to rd.
+/// **SneZ(rd, rs)**: Judge if rs is not zero, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Xor {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct SneZ(pub RiscVRegister, pub RiscVRegister);
 
-/// calculate the bitwise xor of rs and imm, and store the result to rd.
+/// **Xor(rd, rs1, rs2)**: calculate the bitwise xor of rs1 and rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Xori {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-    pub imm: i32,
-}
+pub struct Xor(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// calculate the bitwise or of rs1 and rs2, and store the result to rd.
+/// **Xori(rd, rs, imm)**: calculate the bitwise xor of rs and imm, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Or {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Xori(pub RiscVRegister, pub RiscVRegister, pub Immediate);
 
-/// calculate the bitwise or of rs and imm, and store the result to rd.
+/// **Or(rd, rs1, rs2)**: calculate the bitwise or of rs1 and rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Ori {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-    pub imm: i32,
-}
+pub struct Or(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// calculate the bitwise and of rs1 and rs2, and store the result to rd.
+/// **Ori(rd, rs, imm)**: calculate the bitwise or of rs and imm, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct And {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Ori(pub RiscVRegister, pub RiscVRegister, pub Immediate);
 
-/// calculate the bitwise and of rs and imm, and store the result to rd.
+/// **And(rd, rs1, rs2)**: calculate the bitwise and of rs1 and rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Andi {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-    pub imm: i32,
-}
+pub struct And(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// shift left logical rs1 by rs2 bits, and store the result to rd.
+/// **Andi(rd, rs, imm)**: calculate the bitwise and of rs and imm, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Sll {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Andi(pub RiscVRegister, pub RiscVRegister, pub Immediate);
 
-/// shift right logical rs1 by rs2 bits, and store the result to rd.
+/// **Sll(rd, rs1, rs2)**: shift left logical rs1 by rs2 bits, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Srl {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Sll(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// shift right arithmetic rs1 by rs2 bits, and store the result to rd.
+/// **Srl(rd, rs1, rs2)**: shift right logical rs1 by rs2 bits, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Sra {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Srl(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// multiply rs1 and rs2, and store the result to rd.
+/// **Sra(rd, rs1, rs2)**: shift right arithmetic rs1 by rs2 bits, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Mul {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Sra(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// divide rs1 by rs2, and store the result to rd.
+/// **Mul(rd, rs1, rs2)**: multiply rs1 by rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Div {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Mul(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// calculate the remainder of rs1 divided by rs2, and store the result to rd.
+/// **Div(rd, rs1, rs2)**: divide rs1 by rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Rem {
-    pub rd: ConstRegister,
-    pub rs1: ConstRegister,
-    pub rs2: ConstRegister,
-}
+pub struct Div(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// load the immediate value to rd.
+/// **Rem(rd, rs1, rs2)**: calculate the remainder of rs1 divided by rs2, and store the result to rd.
 #[derive(Debug, Default)]
-pub struct Li {
-    pub rd: ConstRegister,
-    pub imm: i32,
-}
+pub struct Rem(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
 
-/// load the address of the label to rd.
+/// **Li(rd, imm)**: load the immediate value to rd.
 #[derive(Debug, Default)]
-pub struct La {
-    pub rd: ConstRegister,
-    pub label: String,
-}
+pub struct Li(pub RiscVRegister, pub Immediate);
 
-/// move the value of rs to rd.
+/// **La(rd, label)**: load the address of label to rd.
 #[derive(Debug, Default)]
-pub struct Mv {
-    pub rd: ConstRegister,
-    pub rs: ConstRegister,
-}
+pub struct La(pub RiscVRegister, pub String);
+
+/// **Mv(rd, rs)**: move the value of rs to rd.
+#[derive(Debug, Default)]
+pub struct Mv(pub RiscVRegister, pub RiscVRegister);
