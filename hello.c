@@ -1,10 +1,6 @@
 int main() {
-  int a = 1;
+  int s = 5;
   {
-    a = a + 2;
-    int a = 3;
-    a = a + 4;
+    constexpr int p = s;
   }
-  a = a + 5;
-  return a;
-}
+return 0;}

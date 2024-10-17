@@ -1,5 +1,7 @@
 //! Generate IR from AST
 
+use crate::common::IDGenerator;
+
 use super::ast::*;
 use super::eval::*;
 use super::symbol::*;
@@ -27,6 +29,8 @@ pub struct Context {
     pub syb_table: SymbolTable,
     pub func: Option<Function>,
     pub block: Option<BasicBlock>,
+
+    pub id_gen: IDGenerator,
 }
 
 impl Context {
@@ -111,8 +115,8 @@ macro_rules! global_ident {
 
 /// Generate a normal identifier in Koopa IR
 macro_rules! normal_ident {
-    ($def:expr) => {
-        format!("%{}", $def.ident)
+    ($def:expr, $id:expr) => {
+        format!("%{}_{}", $def.ident, $id)
     };
 }
 
@@ -291,6 +295,8 @@ impl GenerateIr<()> for ConstDecl {
 impl GenerateIr<()> for VarDecl {
     fn generate_on(&self, context: &mut Context) -> Result<(), ParseError> {
         for var_def in self.var_defs.clone() {
+            let id = context.id_gen.generate();
+
             // Initialize the variable if needed
             let is_single = var_def.is_single();
             let mut init = None;
@@ -315,7 +321,7 @@ impl GenerateIr<()> for VarDecl {
             } else {
                 todo!()
             };
-            set_value_name!(func_data, alloc, normal_ident!(var_def));
+            set_value_name!(func_data, alloc, normal_ident!(var_def, id));
 
             if let Some(init) = init {
                 // Store the initial value to the variable
