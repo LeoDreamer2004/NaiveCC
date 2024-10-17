@@ -4,16 +4,17 @@
 //!
 //! Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024.git
 
-use backend::emit_asm;
-use frontend::{build_ir, emit_ir};
+use backend::{emit_asm, AsmError};
+use frontend::{build_ir, emit_ir, AstError};
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::{read_to_string, File};
 use std::io;
+use std::process::exit;
 
 mod backend;
-mod frontend;
 mod common;
+mod frontend;
 
 lalrpop_mod!(sysy);
 
@@ -23,11 +24,43 @@ pub enum Error {
     InvalidArgs(String),
     InvalidFile(io::Error),
     Io(io::Error),
-    Parse(frontend::ParseError),
+    Parse,
+    Ir(frontend::AstError),
     Asm(backend::AsmError),
 }
 
-fn main() -> Result<(), Error> {
+fn main() {
+    let debug = true;
+    if debug {
+        _debug();
+    } else {
+        _main().unwrap();
+    }
+}
+
+fn _debug() {
+    if let Err(e) = _main() {
+        match e {
+            Error::Parse => exit(600),
+            Error::Ir(err) => match err {
+                AstError::AssignError(_) => exit(701),
+                AstError::FunctionNotFoundError(_) => exit(702),
+                AstError::IllegalConstExpError(_) => exit(703),
+                AstError::UndefinedConstError(_) => exit(704),
+                AstError::UndefinedVarError(_) => exit(705),
+                AstError::UnknownError(_) => exit(706),
+            },
+            Error::Asm(err) => match err {
+                AsmError::FunctionNotFound(_) => exit(801),
+                AsmError::InvalidStackFrame => exit(802),
+                AsmError::RegisterNotAssigned(_) => exit(803),
+            },
+            _ => exit(400),
+        }
+    }
+}
+
+fn _main() -> Result<(), Error> {
     let args = parse_cmd_args()?;
     let input = read_to_string(args.input).map_err(Error::InvalidFile)?;
     let output = if let Some(path) = args.output {
@@ -37,8 +70,8 @@ fn main() -> Result<(), Error> {
         Box::new(io::stdout())
     };
 
-    let ast = sysy::CompUnitParser::new().parse(&input).unwrap();
-    let mut program = build_ir(ast).map_err(Error::Parse)?;
+    let ast = sysy::CompUnitParser::new().parse(&input).map_err(|_| Error::Parse)?;
+    let mut program = build_ir(ast).map_err(Error::Ir)?;
     // println!("{:#?}", ast);
     match args.mode {
         Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,

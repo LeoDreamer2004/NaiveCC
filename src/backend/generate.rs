@@ -11,7 +11,7 @@ pub trait GenerateAsm<T> {
 
 pub struct Context<'a> {
     pub dispatcher: RegisterDispatcher,
-    pub label_gen: IDGenerator,
+    pub label_gen: IDGenerator<u64>,
 
     pub program: &'a Program,
     pub function: Option<Function>,

@@ -4,4 +4,4 @@ mod generate;
 mod transform;
 mod symbol;
 
-pub use generate::{build_ir, emit_ir, ParseError};
+pub use generate::{build_ir, emit_ir, AstError};

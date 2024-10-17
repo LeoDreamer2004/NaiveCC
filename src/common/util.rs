@@ -3,15 +3,17 @@ use std::marker::PhantomData;
 use koopa::ir::{entities::BasicBlockData, FunctionData};
 
 /// An easy generator for unique IDs.
-#[derive(Debug, Default)]
-pub struct IDGenerator {
+#[derive(Debug)]
+pub struct IDGenerator<T> {
     current_id: u64,
+    phantom: PhantomData<T>,
 }
 
-impl IDGenerator {
+impl<T> IDGenerator<T> {
     pub fn new() -> Self {
         IDGenerator {
             current_id: 0,
+            phantom: PhantomData,
         }
     }
 
@@ -32,7 +34,7 @@ mod test {
     use super::*;
     #[test]
     fn generate_id() {
-        let mut int_generator: IDGenerator = IDGenerator::new();
+        let mut int_generator: IDGenerator<i32> = IDGenerator::new();
         assert_eq!(int_generator.generate(), 0);
         assert_eq!(int_generator.generate(), 1);
         assert_eq!(int_generator.generate(), 2);

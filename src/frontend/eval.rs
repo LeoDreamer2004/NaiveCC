@@ -1,13 +1,13 @@
 use super::ast::*;
 use super::generate::Context;
-use super::ParseError;
+use super::AstError;
 
 pub trait Eval<T> {
-    fn eval(&self, context: &Context) -> Result<T, ParseError>;
+    fn eval(&self, context: &Context) -> Result<T, AstError>;
 }
 
 impl Eval<i32> for Exp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             Exp::LOrExp(exp) => exp.eval(context),
         }
@@ -15,7 +15,7 @@ impl Eval<i32> for Exp {
 }
 
 impl Eval<i32> for ConstExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             ConstExp::LOrExp(exp) => exp.eval(context),
         }
@@ -23,7 +23,7 @@ impl Eval<i32> for ConstExp {
 }
 
 impl Eval<i32> for LOrExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             LOrExp::LAndExp(exp) => exp.eval(context),
             LOrExp::LOrOpExp(op_exp) => {
@@ -36,7 +36,7 @@ impl Eval<i32> for LOrExp {
 }
 
 impl Eval<i32> for LAndExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             LAndExp::EqExp(exp) => exp.eval(context),
             LAndExp::LAndOpExp(op_exp) => {
@@ -49,7 +49,7 @@ impl Eval<i32> for LAndExp {
 }
 
 impl Eval<i32> for EqExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             EqExp::RelExp(exp) => exp.eval(context),
             EqExp::EqOpExp(op_exp) => {
@@ -65,7 +65,7 @@ impl Eval<i32> for EqExp {
 }
 
 impl Eval<i32> for RelExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             RelExp::AddExp(exp) => exp.eval(context),
             RelExp::RelOpExp(op_exp) => {
@@ -83,7 +83,7 @@ impl Eval<i32> for RelExp {
 }
 
 impl Eval<i32> for AddExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             AddExp::MulExp(exp) => exp.eval(context),
             AddExp::AddOpExp(op_exp) => {
@@ -99,7 +99,7 @@ impl Eval<i32> for AddExp {
 }
 
 impl Eval<i32> for MulExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             MulExp::UnaryExp(exp) => exp.eval(context),
             MulExp::MulOpExp(op_exp) => {
@@ -116,10 +116,10 @@ impl Eval<i32> for MulExp {
 }
 
 impl Eval<i32> for UnaryExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             UnaryExp::PrimaryExp(exp) => exp.eval(context),
-            UnaryExp::FuncCall(_) => Err(ParseError::IllegalConstExpError(String::from(
+            UnaryExp::FuncCall(_) => Err(AstError::IllegalConstExpError(String::from(
                 "Function Call",
             ))),
             UnaryExp::UnaryOpExp(op_exp) => {
@@ -135,14 +135,14 @@ impl Eval<i32> for UnaryExp {
 }
 
 impl Eval<i32> for PrimaryExp {
-    fn eval(&self, context: &Context) -> Result<i32, ParseError> {
+    fn eval(&self, context: &Context) -> Result<i32, AstError> {
         match self {
             PrimaryExp::Exp(exp) => exp.eval(context),
             PrimaryExp::LVal(l_val) => {
                 let ident = l_val.ident.clone();
                 match context.syb_table.lookup_const(&ident) {
                     Some(symbol) => Ok(symbol.value),
-                    None => Err(ParseError::UndefinedConstError(ident)),
+                    None => Err(AstError::UndefinedConstError(ident)),
                 }
             }
             PrimaryExp::Number(num) => match num {
@@ -152,7 +152,7 @@ impl Eval<i32> for PrimaryExp {
     }
 }
 
-pub fn eval_array_size(array_index: &Vec<ConstExp>, context: &Context) -> Result<i32, ParseError> {
+pub fn eval_array_size(array_index: &Vec<ConstExp>, context: &Context) -> Result<i32, AstError> {
     let mut length = 1;
     for exp in array_index {
         length *= exp.eval(context)?;

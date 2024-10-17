@@ -1,7 +1,7 @@
 use super::ast::{ConstDef, ConstInitVal, VarDef};
 use super::eval::*;
 use super::generate::Context;
-use super::ParseError;
+use super::AstError;
 use koopa::ir::Value;
 
 /// Symbol Table
@@ -163,11 +163,11 @@ pub struct VarArraySymbol {
 /****************** Symbol Traits & Implementations *******************/
 
 pub trait IntoSymbol {
-    fn to_symbol(self, context: &Context) -> Result<Symbol, ParseError>;
+    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError>;
 }
 
 impl IntoSymbol for ConstDef {
-    fn to_symbol(self, context: &Context) -> Result<Symbol, ParseError> {
+    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError> {
         let ident = self.ident;
         match self.const_init_val {
             ConstInitVal::ConstExp(const_exp) => {
@@ -182,7 +182,7 @@ impl IntoSymbol for ConstDef {
 }
 
 impl IntoSymbol for VarDef {
-    fn to_symbol(self, context: &Context) -> Result<Symbol, ParseError> {
+    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError> {
         if self.is_single() {
             let ident = self.ident;
             Ok(Symbol::Var(VarSymbol { ident }))
