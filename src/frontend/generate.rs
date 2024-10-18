@@ -2,6 +2,7 @@
 
 use super::ast::*;
 use super::eval::*;
+use super::loops::*;
 use super::symbol::*;
 use koopa::back::KoopaGenerator;
 use koopa::ir::builder_traits::*;
@@ -28,6 +29,7 @@ pub struct Context {
     pub syb_table: SymbolTable,
     pub func: Option<Function>,
     pub block: Option<BasicBlock>,
+    pub loop_stack: LoopStack,
 }
 
 impl Context {
@@ -46,6 +48,7 @@ pub enum AstError {
     IllegalConstExpError(String),
     UndefinedConstError(String),
     UndefinedVarError(String),
+    LoopStackError(String),
     AssignError(String),
     UnknownError(String),
 }
@@ -162,6 +165,11 @@ impl Context {
         self.block.unwrap()
     }
 
+    pub fn pop_block(&mut self) {
+        self.func_data().layout_mut().bbs_mut().pop_back();
+        self.block = None;
+    }
+
     pub fn add_inst(&mut self, inst: Value) {
         let func_data = self.program.func_mut(self.func.unwrap());
         let block = self.block.unwrap();
@@ -205,7 +213,7 @@ impl GenerateIr<()> for FuncDef {
         context.syb_table.exit_scope();
         assert!(context.syb_table.items.is_empty());
 
-        // context.func_data().layout_mut().bbs_mut().pop_back();
+        context.pop_block();
         context.block = None;
         Ok(())
     }
@@ -237,10 +245,10 @@ impl GenerateIr<()> for Block {
                         Stmt::Return(_) => {
                             break;
                         }
-                        Stmt::Break => {
+                        Stmt::Break(_) => {
                             break;
                         }
-                        Stmt::Continue => {
+                        Stmt::Continue(_) => {
                             break;
                         }
                         _ => {}
@@ -259,15 +267,14 @@ impl GenerateIr<()> for Stmt {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
         match self {
             Stmt::Empty => Ok(()),
-            Stmt::Exp(exp) => {
-                exp.generate_on(context)?;
-                Ok(())
-            }
+            Stmt::Exp(exp) => exp.generate_on(context).map(|_| ()),
             Stmt::Block(stmt) => stmt.generate_on(context),
             Stmt::Assign(stmt) => stmt.generate_on(context),
             Stmt::If(stmt) => stmt.generate_on(context),
+            Stmt::While(stmt) => stmt.generate_on(context),
             Stmt::Return(stmt) => stmt.generate_on(context),
-            _ => todo!(),
+            Stmt::Break(stmt) => stmt.generate_on(context),
+            Stmt::Continue(stmt) => stmt.generate_on(context),
         }
     }
 }
@@ -304,15 +311,13 @@ impl GenerateIr<()> for Assign {
 
 impl GenerateIr<()> for If {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
-        let cond = match &self.cond {
-            Cond::LOrExp(exp) => exp.generate_on(context)?,
-        };
+        let cond = self.cond.generate_on(context)?;
         let base_bb = context.block.unwrap();
 
         let true_bb = context.new_block(Some("%then".into()), false);
         self.stmt.generate_on(context)?;
-         // always create a new ending block for the then statement
-        // even if it is not a block statement       
+        // always create a new ending block for the then statement
+        // even if it is not a block statement
         let true_end_bb = context.new_block(Some("%then_end".into()), true);
 
         if let Some(else_stmt) = &self.else_stmt {
@@ -336,7 +341,69 @@ impl GenerateIr<()> for If {
         };
 
         Ok(())
-        // todo!()
+    }
+}
+
+impl GenerateIr<()> for While {
+    fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
+        let base_bb = context.block.unwrap();
+
+        let cond_bb = context.new_block(Some("%cond".into()), true);
+        let cond = self.cond.generate_on(context)?;
+        // use a temporary end block to serve for "break"
+        let temp_end_bb = context.new_block(None, false);
+
+        context.loop_stack.push(Loop {
+            cond_bb,
+            end_bb: temp_end_bb,
+        });
+        let body_bb = context.new_block(Some("%body".into()), false);
+        self.stmt.generate_on(context)?;
+        let func_data = context.func_data();
+
+        // jump back to the condition
+        let jump = new_value!(func_data).jump(cond_bb);
+        context.add_inst(jump);
+
+        let end_bb = context.new_block(None, true);
+        let func_data = context.func_data();
+
+        // branch to body/end
+        let branch = new_value!(func_data).branch(cond, body_bb, end_bb);
+        add_inst!(func_data, cond_bb, branch);
+
+        // temp end block
+        let jump = new_value!(func_data).jump(end_bb);
+        add_inst!(func_data, temp_end_bb, jump);
+
+        context.loop_stack.pop();
+        Ok(())
+    }
+}
+
+impl GenerateIr<()> for Break {
+    fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
+        let end_bb = context
+            .loop_stack
+            .last()
+            .ok_or(AstError::LoopStackError("break".into()))?
+            .end_bb;
+        let jump = new_value!(context.func_data()).jump(end_bb);
+        context.add_inst(jump);
+        Ok(())
+    }
+}
+
+impl GenerateIr<()> for Continue {
+    fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
+        let cond_bb = context
+            .loop_stack
+            .last()
+            .ok_or(AstError::LoopStackError("continue".into()))?
+            .cond_bb;
+        let jump = new_value!(context.func_data()).jump(cond_bb);
+        context.add_inst(jump);
+        Ok(())
     }
 }
 
@@ -408,6 +475,14 @@ impl GenerateIr<Value> for ConstExp {
     fn generate_on(&self, context: &mut Context) -> Result<Value, AstError> {
         // Const expressions must be evaluated at compile time
         self.eval(context)?.generate_on(context)
+    }
+}
+
+impl GenerateIr<Value> for Cond {
+    fn generate_on(&self, context: &mut Context) -> Result<Value, AstError> {
+        match self {
+            Cond::LOrExp(exp) => exp.generate_on(context),
+        }
     }
 }
 

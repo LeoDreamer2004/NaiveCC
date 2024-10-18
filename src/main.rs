@@ -49,6 +49,7 @@ fn _handin(args: CommandLineArgs) {
                 AstError::UndefinedConstError(_) => exit(74),
                 AstError::UndefinedVarError(_) => exit(75),
                 AstError::UnknownError(_) => exit(76),
+                AstError::LoopStackError(_) => exit(77),
             },
             Error::Asm(err) => match err {
                 AsmError::FunctionNotFound(_) => exit(81),

@@ -47,7 +47,7 @@ pub enum ConstInitVal {
 
 #[derive(Debug, Clone)]
 pub enum ConstExp {
-    LOrExp(LOrExp)
+    LOrExp(LOrExp),
 }
 
 #[derive(Debug, Clone)]
@@ -111,15 +111,15 @@ pub enum BlockItem {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
+    Empty,
     Assign(Box<Assign>),
     Exp(Box<Exp>),
     Block(Box<Block>),
     If(Box<If>),
     While(Box<While>),
-    Break,
-    Continue,
+    Break(Break),
+    Continue(Continue),
     Return(Box<Return>),
-    Empty,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +134,12 @@ pub struct If {
     pub stmt: Stmt,
     pub else_stmt: Option<Stmt>,
 }
+
+#[derive(Debug, Clone)]
+pub struct Break;
+
+#[derive(Debug, Clone)]
+pub struct Continue;
 
 #[derive(Debug, Clone)]
 pub struct While {

@@ -133,9 +133,9 @@ __IfMatchStmt: Stmt = {
 
     "while" "(" <cond: Cond> ")" <stmt: __IfMatchStmt> => Stmt::While(Box::new(While { <> })),
 
-    "break" ";" => Stmt::Break,
+    "break" ";" => Stmt::Break(Break),
 
-    "continue" ";" => Stmt::Continue,
+    "continue" ";" => Stmt::Continue(Continue),
 
     "return" <exp: Exp?> ";" => Stmt::Return(Box::new(Return { <> })),
 

@@ -1,5 +1,6 @@
-int main() {
-  return 5;
-  return 4;
-  return 3;
+int x() {
+  if (5 > 5)
+    return 1;
+  else
+    return 0;
 }

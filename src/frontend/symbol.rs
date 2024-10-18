@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
 use super::ast::{ConstDef, ConstInitVal, VarDef};
 use super::eval::*;
 use super::generate::Context;
 use super::AstError;
-use koopa::ir::Value;
+use koopa::ir::{BasicBlock, Value};
 
 /// Symbol Table
 /// Implemented as a stack of scopes
