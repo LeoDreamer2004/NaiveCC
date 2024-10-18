@@ -1,11 +1,13 @@
-int main() {
-  int a = 0;
-  const int b = 1 - 1 * 2 + 1;
-  int c = 1, d = 2;
-  if (a || b) {
-    c = 3;
-  } else {
-    d = 3;
-  }
-  return a + b + c + d;
+int m10in() {
+  if (1)
+    if (1)
+      if (1)
+        return 10;
+      else
+        if (1)
+          if (1)
+            return 10 + 1;
+          else
+            return 10 + 2;
+  return -1;
 }

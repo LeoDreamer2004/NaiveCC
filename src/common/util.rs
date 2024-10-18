@@ -1,24 +1,43 @@
-use std::marker::PhantomData;
+use std::{collections::HashMap, hash::Hash};
 
-/// An easy generator for unique IDs.
+type NameMapper = fn(u64) -> String;
+
+/// An easy generator for unique IDs and names.
 #[derive(Debug)]
-pub struct IDGenerator<T> {
+pub struct NameGenerator<T> {
     current_id: u64,
-    phantom: PhantomData<T>,
+    map: HashMap<T, u64>,
+    f: NameMapper,
 }
 
-impl<T> IDGenerator<T> {
-    pub fn new() -> Self {
-        IDGenerator {
+impl<T> NameGenerator<T>
+where
+    T: Eq + Hash + Clone,
+{
+    pub fn new(f: NameMapper) -> Self {
+        NameGenerator {
             current_id: 0,
-            phantom: PhantomData,
+            map: HashMap::new(),
+            f,
         }
     }
 
-    pub fn generate(&mut self) -> u64 {
-        let id = self.current_id;
-        self.current_id += 1;
-        id
+    /// Generate a unique ID for the given data.
+    pub fn get_id(&mut self, data: T) -> u64 {
+        if let Some(id) = self.map.get(&data) {
+            *id
+        } else {
+            let id = self.current_id;
+            self.map.insert(data, id);
+            self.current_id += 1;
+            id
+        }
+    }
+
+    /// Get the name of the given data.
+    pub fn get_name(&mut self, data: T) -> String {
+        let id = self.get_id(data);
+        (self.f)(id)
     }
 }
 
@@ -27,9 +46,9 @@ mod test {
     use super::*;
     #[test]
     fn generate_id() {
-        let mut int_generator: IDGenerator<i32> = IDGenerator::new();
-        assert_eq!(int_generator.generate(), 0);
-        assert_eq!(int_generator.generate(), 1);
-        assert_eq!(int_generator.generate(), 2);
+        let mut int_generator = NameGenerator::new(|id| id.to_string());
+        assert_eq!(int_generator.get_id(2), 0);
+        assert_eq!(int_generator.get_id(3), 1);
+        assert_eq!(int_generator.get_name(2), "0".to_string());
     }
 }

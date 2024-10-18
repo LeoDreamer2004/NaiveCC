@@ -1,3 +1,3 @@
 pub mod util;
 
-pub use util::IDGenerator;
+pub use util::NameGenerator;

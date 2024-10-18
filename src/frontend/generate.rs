@@ -1,6 +1,6 @@
 //! Generate IR from AST
 
-use crate::common::IDGenerator;
+use crate::common::NameGenerator;
 
 use super::ast::*;
 use super::eval::*;
@@ -30,14 +30,6 @@ pub struct Context {
     pub syb_table: SymbolTable,
     pub func: Option<Function>,
     pub block: Option<BasicBlock>,
-
-    pub block_gen: IDGenerator<BasicBlock>,
-}
-
-impl Default for IDGenerator<BasicBlock> {
-    fn default() -> Self {
-        IDGenerator::new()
-    }
 }
 
 impl Context {

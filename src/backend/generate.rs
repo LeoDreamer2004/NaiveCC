@@ -1,8 +1,8 @@
 use super::instruction::*;
 use super::register::{self, RegisterDispatcher, RegisterType, RiscVRegister};
-use crate::common::IDGenerator;
+use crate::common::NameGenerator;
 use koopa::ir::entities::ValueData;
-use koopa::ir::{BinaryOp, Function, FunctionData, Program, Value, ValueKind};
+use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value, ValueKind};
 use std::io::Write;
 
 pub trait GenerateAsm<T> {
@@ -11,11 +11,24 @@ pub trait GenerateAsm<T> {
 
 pub struct Context<'a> {
     pub dispatcher: RegisterDispatcher,
-    pub label_gen: IDGenerator<u64>,
+    pub label_gen: NameGenerator<BasicBlock>,
 
     pub program: &'a Program,
     pub function: Option<Function>,
     pub value: Option<Value>,
+}
+
+impl<'a> Context<'a> {
+    pub fn new(program: &'a Program) -> Self {
+        Context {
+            dispatcher: RegisterDispatcher::default(),
+            label_gen: NameGenerator::new(|id|format!(".l{}", id)),
+
+            program,
+            function: None,
+            value: None,
+        }
+    }
 }
 
 macro_rules! func_data {
@@ -59,8 +72,8 @@ impl GenerateAsm<()> for FunctionData {
         asm.push(Inst::Directive(Directive::Globl(original_ident!(self))));
         asm.push(Inst::Label(original_ident!(self)));
         context.dispatcher.new_frame(asm);
-        for (&_, node) in self.layout().bbs() {
-            asm.push(Inst::Label(format!(".l{}", context.label_gen.generate())));
+        for (&bb, node) in self.layout().bbs() {
+            asm.push(Inst::Label(context.label_gen.get_name(bb)));
             for &inst in node.insts().keys() {
                 context.value = Some(inst);
                 self.dfg().value(inst).generate_on(context, asm)?;
@@ -148,7 +161,22 @@ impl GenerateAsm<()> for ValueData {
                     let rs = value.into_element().generate_on(context, asm)?;
                     asm.push(Inst::Mv(Mv(&register::A0, rs)));
                     asm.push(Inst::Ret(Ret {}));
+                    context.dispatcher.release(rs);
                 }
+                Ok(())
+            }
+            ValueKind::Jump(jump) => {
+                let label = jump.target();
+                asm.push(Inst::J(J(context.label_gen.get_name(label))));
+                Ok(())
+            }
+            ValueKind::Branch(branch) => {
+                let rs = branch.cond().into_element().generate_on(context, asm)?;
+                let true_bb = branch.true_bb();
+                asm.push(Inst::Bnez(Bnez(rs, context.label_gen.get_name(true_bb))));
+                let false_bb = branch.false_bb();
+                asm.push(Inst::J(J(context.label_gen.get_name(false_bb))));
+                context.dispatcher.release(rs);
                 Ok(())
             }
             _ => todo!(),
@@ -198,14 +226,7 @@ impl GenerateAsm<RiscVRegister> for ElementData {
 
 pub fn build_asm(ir_program: Program) -> Result<AsmProgram, AsmError> {
     let mut asm = AsmProgram::new();
-    let mut context = Context {
-        dispatcher: RegisterDispatcher::default(),
-        label_gen: IDGenerator::new(),
-
-        program: &ir_program,
-        function: None,
-        value: None,
-    };
+    let mut context = Context::new(&ir_program);
     ir_program.generate_on(&mut context, &mut asm)?;
     Ok(asm)
 }
