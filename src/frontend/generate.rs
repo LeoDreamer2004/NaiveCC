@@ -7,6 +7,7 @@ use super::eval::*;
 use super::symbol::*;
 use koopa::back::KoopaGenerator;
 use koopa::ir::builder_traits::*;
+use koopa::ir::ValueKind;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value};
 use std::io;
 
@@ -142,10 +143,24 @@ impl Context {
     pub fn update_block(&mut self, name: Option<String>) {
         let block = self.block.unwrap();
         let func_data = self.func_data();
-        let block = func_data.layout_mut().bb_mut(block);
-        if !block.insts().is_empty() {
+        let block_node = func_data.layout_mut().bb_mut(block);
+        if !block_node.insts().is_empty() {
+            let &last = block_node.insts().back_key().unwrap();
+
             let this = new_bb!(func_data).basic_block(name);
             add_bb!(func_data, this);
+
+            // If the last instruction is not a jump, branch or return, add a jump to the next block
+            let kind = func_data.dfg().value(last).kind();
+            match kind {
+                ValueKind::Jump(_) => {}
+                ValueKind::Branch(_) => {}
+                ValueKind::Return(_) => {}
+                _ => {
+                    let jump = new_value!(func_data).jump(this);
+                    add_inst!(func_data, block, jump);
+                }
+            }
             self.block(this);
         }
     }

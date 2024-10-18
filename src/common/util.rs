@@ -1,7 +1,5 @@
 use std::marker::PhantomData;
 
-use koopa::ir::{entities::BasicBlockData, FunctionData};
-
 /// An easy generator for unique IDs.
 #[derive(Debug)]
 pub struct IDGenerator<T> {
@@ -22,11 +20,6 @@ impl<T> IDGenerator<T> {
         self.current_id += 1;
         id
     }
-}
-
-pub fn local_name(ident: &String, func_data: &FunctionData, id: u64) -> String{
-    // TODO: If blockdata doesn't have a name, generate a name for it
-    format!("__{}_{}_{}", func_data.name()[1..].to_string(), ident, id)
 }
 
 #[cfg(test)]
