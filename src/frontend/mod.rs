@@ -1,4 +1,5 @@
 pub mod ast;
+mod builtin;
 mod eval;
 mod generate;
 mod loops;

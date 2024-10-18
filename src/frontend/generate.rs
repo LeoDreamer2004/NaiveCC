@@ -1,6 +1,7 @@
 //! Generate IR from AST
 
 use super::ast::*;
+use super::builtin::builtin_functions;
 use super::eval::*;
 use super::loops::*;
 use super::symbol::*;
@@ -181,6 +182,10 @@ impl Context {
         self.block = None;
     }
 
+    pub fn in_entry(&mut self) -> bool {
+        self.func_data().layout().bbs().len() == 1
+    }
+
     pub fn add_inst(&mut self, inst: Value) {
         let func_data = self.program.func_mut(self.func.unwrap());
         let block = self.block.unwrap();
@@ -190,6 +195,11 @@ impl Context {
 
 impl GenerateIr<()> for CompUnit {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
+        // builtin functions
+        for func_data in builtin_functions() {
+            context.program.new_func(func_data);
+        }
+
         for comp_item in &self.comp_items {
             match comp_item {
                 CompItem::FuncDef(func_def) => {
@@ -206,11 +216,11 @@ impl GenerateIr<()> for CompUnit {
 
 impl GenerateIr<()> for FuncDef {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
-        let func = FunctionData::new_decl(
+        let func = FunctionData::with_param_names(
             global_ident!(self),
             self.params
                 .iter()
-                .map(|param| param.b_type.into())
+                .map(|param| (Some(global_ident!(param)), param.b_type.into()))
                 .collect(),
             self.func_type.into(),
         );
@@ -220,12 +230,32 @@ impl GenerateIr<()> for FuncDef {
         context.create_block(Some("%entry".into()));
 
         context.syb_table.enter_scope();
+
+        // Add parameters to the symbol table
+        for param in &self.params {
+            let alloc = new_value!(context.func_data()).alloc(param.b_type.into());
+            set_value_name!(context.func_data(), alloc, normal_ident!(param));
+            context.add_inst(alloc);
+            context
+                .syb_table
+                .add_var(param.clone().to_symbol(context)?, alloc);
+        }
+
         self.block.generate_on(context)?;
         context.syb_table.exit_scope();
-        assert!(context.syb_table.items.is_empty());
 
-        context.pop_block();
+        match self.func_type {
+            FuncType::Void => {
+                let func_data = context.func_data();
+                let ret = new_value!(func_data).ret(None);
+                context.add_inst(ret);
+            }
+            FuncType::BType(_) => {
+                context.pop_block();
+            }
+        };
         context.block = None;
+        context.func = None;
         Ok(())
     }
 }
@@ -358,9 +388,7 @@ impl GenerateIr<()> for If {
 impl GenerateIr<()> for While {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
         let block = context.block.unwrap();
-        let at_entry = context.func_data().layout().bbs().len() == 1;
-
-        let cond_bb = if at_entry {
+        let cond_bb = if context.in_entry() {
             // The entry basic block is not allowed to have predecessors
             // so create a new block for the condition
             let cond_bb = context.new_block(Some("%cond".into()), false);
@@ -372,7 +400,6 @@ impl GenerateIr<()> for While {
             context.new_block(Some("%cond".into()), true)
         };
 
-        
         let cond = self.cond.generate_on(context)?;
         // use a temporary end block to serve for "break"
         let temp_end_bb = context.new_block(None, false);
@@ -444,44 +471,72 @@ impl GenerateIr<()> for ConstDecl {
 
 impl GenerateIr<()> for VarDecl {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
-        for var_def in self.var_defs.clone() {
-            // Initialize the variable if needed
-            let is_single = var_def.is_single();
-            let mut init = None;
+        let is_global = context.func.is_none();
 
+        for var_def in self.var_defs.clone() {
+            let is_single = var_def.is_single();
+
+            // Initialize the variable if needed
+            let mut init = None;
             if let Some(value) = &var_def.init_val {
                 match value {
                     InitVal::Exp(exp) => {
-                        if !is_single {
-                            return Err(AstError::AssignError(var_def.ident.clone()));
+                        if is_single {
+                            init = if is_global {
+                                let int = exp.eval(context)?;
+                                Some(context.program.new_value().integer(int))
+                            } else {
+                                Some(exp.generate_on(context)?)
+                            };
+                        } else {
+                            todo!()
                         }
-                        init = Some(exp.generate_on(context)?);
                     }
                     InitVal::InitVals(_) => todo!(),
                 }
             }
 
-            let func_data = context.func_data();
+            if is_global {
+                // GLOBAL VARIABLE
 
-            // Allocate memory for the variable
-            let alloc = if is_single {
-                new_value!(func_data).alloc(self.b_type.into())
+                // Allocate global memory for the variable
+                let alloc = if is_single {
+                    let zero = context.program.new_value().zero_init(self.b_type.into());
+                    context
+                        .program
+                        .new_value()
+                        .global_alloc(init.unwrap_or(zero))
+                } else {
+                    todo!()
+                };
+                context
+                    .program
+                    .set_value_name(alloc, Some(global_ident!(var_def)));
+                context
+                    .syb_table
+                    .add_var(var_def.to_symbol(context)?, alloc);
             } else {
-                todo!()
-            };
-            set_value_name!(func_data, alloc, normal_ident!(var_def));
+                // LOCAL VARIABLE
 
-            context.add_inst(alloc);
+                let func_data = context.func_data();
+                // Allocate memory for the variable
+                let alloc = if is_single {
+                    new_value!(func_data).alloc(self.b_type.into())
+                } else {
+                    todo!()
+                };
+                set_value_name!(func_data, alloc, normal_ident!(var_def));
+                context.add_inst(alloc);
 
-            if let Some(init) = init {
-                // Store the initial value to the variable
-                let store = new_value!(context.func_data()).store(init, alloc);
-                context.add_inst(store);
+                if let Some(init) = init {
+                    // Store the initial value to the variable
+                    let store = new_value!(context.func_data()).store(init, alloc);
+                    context.add_inst(store);
+                }
+                context
+                    .syb_table
+                    .add_var(var_def.to_symbol(context)?, alloc);
             }
-
-            context
-                .syb_table
-                .add_var(var_def.to_symbol(context)?, alloc);
         }
         Ok(())
     }
@@ -519,15 +574,31 @@ impl GenerateIr<Value> for LOrExp {
         match self {
             LOrExp::LAndExp(l_and_exp) => l_and_exp.generate_on(context),
             LOrExp::LOrOpExp(op_exp) => {
+                // short circuit
+
+                // base block
+                let base_bb = context.block.unwrap();
+                let func_data = context.func_data();
+                let zero = new_value!(func_data).integer(0);
                 let lhs = op_exp.l_or_exp.generate_on(context)?;
+                let func_data = context.func_data();
+                let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
+                context.add_inst(lhs);
+                
+                // false block
+                let false_bb = context.new_block(Some("%or_else".into()), false);
                 let rhs = op_exp.l_and_exp.generate_on(context)?;
                 let func_data = context.func_data();
+                let rhs = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
+                context.add_inst(rhs);
 
-                // a || b = (a | b) != 0
-                let zero = new_value!(func_data).integer(0);
-                let temp = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
-                let value = new_value!(func_data).binary(BinaryOp::NotEq, temp, zero);
-                context.add_inst(temp);
+                // end block
+                let end_bb = context.new_block(None, true);
+                let func_data = context.func_data();
+                let branch = new_value!(func_data).branch(lhs, end_bb, false_bb);
+                add_inst!(func_data, base_bb, branch);
+
+                let value = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
                 context.add_inst(value);
                 Ok(value)
             }
@@ -540,17 +611,31 @@ impl GenerateIr<Value> for LAndExp {
         match self {
             LAndExp::EqExp(eq_exp) => eq_exp.generate_on(context),
             LAndExp::LAndOpExp(op_exp) => {
+                // short circuit
+
+                // base block
+                let base_bb = context.block.unwrap();
+                let func_data = context.func_data();
+                let zero = new_value!(func_data).integer(0);
                 let lhs = op_exp.l_and_exp.generate_on(context)?;
+                let func_data = context.func_data();
+                let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
+                context.add_inst(lhs);
+                
+                // true block
+                let true_bb = context.new_block(Some("%and_else".into()), false);
                 let rhs = op_exp.eq_exp.generate_on(context)?;
                 let func_data = context.func_data();
-
-                // a && b = (a != 0) & (b != 0)
-                let zero = new_value!(func_data).integer(0);
-                let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
                 let rhs = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
-                let value = new_value!(func_data).binary(BinaryOp::And, lhs, rhs);
-                context.add_inst(lhs);
                 context.add_inst(rhs);
+
+                // end block
+                let end_bb = context.new_block(None, true);
+                let func_data = context.func_data();
+                let branch = new_value!(func_data).branch(lhs, true_bb, end_bb);
+                add_inst!(func_data, base_bb, branch);
+
+                let value = new_value!(func_data).binary(BinaryOp::And, lhs, rhs);
                 context.add_inst(value);
                 Ok(value)
             }

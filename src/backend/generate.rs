@@ -22,7 +22,7 @@ impl<'a> Context<'a> {
     pub fn new(program: &'a Program) -> Self {
         Context {
             dispatcher: RegisterDispatcher::default(),
-            label_gen: NameGenerator::new(|id|format!(".l{}", id)),
+            label_gen: NameGenerator::new(|id| format!(".l{}", id)),
 
             program,
             function: None,
@@ -180,6 +180,9 @@ impl GenerateAsm<()> for ValueData {
                 context.dispatcher.release(rs);
                 Ok(())
             }
+            // ValueKind::Call(call) => {
+                // todo!()
+            // }
             _ => todo!(),
         }
     }

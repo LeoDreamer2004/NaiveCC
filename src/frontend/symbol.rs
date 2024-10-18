@@ -1,4 +1,4 @@
-use super::ast::{ConstDef, ConstInitVal, VarDef};
+use super::ast::{ConstDef, ConstInitVal, FuncFParam, VarDef};
 use super::eval::*;
 use super::generate::Context;
 use super::AstError;
@@ -162,6 +162,28 @@ pub struct VarArraySymbol {
 
 /****************** Symbol Traits & Implementations *******************/
 
+pub trait ArraySizable {
+    fn is_single(&self) -> bool;
+}
+
+impl ArraySizable for ConstDef {
+    fn is_single(&self) -> bool {
+        self.array_size.is_empty()
+    }
+}
+
+impl ArraySizable for VarDef {
+    fn is_single(&self) -> bool {
+        self.array_size.is_empty()
+    }
+}
+
+impl ArraySizable for FuncFParam {
+    fn is_single(&self) -> bool {
+        !self.is_array
+    }
+}
+
 pub trait IntoSymbol {
     fn to_symbol(self, context: &Context) -> Result<Symbol, AstError>;
 }
@@ -182,6 +204,17 @@ impl IntoSymbol for ConstDef {
 }
 
 impl IntoSymbol for VarDef {
+    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError> {
+        if self.is_single() {
+            let ident = self.ident;
+            Ok(Symbol::Var(VarSymbol { ident }))
+        } else {
+            todo!();
+        }
+    }
+}
+
+impl IntoSymbol for FuncFParam {
     fn to_symbol(self, context: &Context) -> Result<Symbol, AstError> {
         if self.is_single() {
             let ident = self.ident;
