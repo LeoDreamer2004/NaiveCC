@@ -1,4 +1,4 @@
 int main() {
-  while (1) return 1;
-  return 0;
+  while (1) {while(1) continue;continue;}
+  return -1;
 }

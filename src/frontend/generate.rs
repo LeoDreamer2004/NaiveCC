@@ -89,15 +89,17 @@ macro_rules! add_bb {
     };
 }
 
+/// Get all instructions in a [`BasicBlock`] in [`Function`]
+macro_rules! all_insts {
+    ($func:expr, $bb:expr) => {
+        $func.layout_mut().bb_mut($bb).insts_mut()
+    };
+}
+
 /// Add an [`Value`] to a [`BasicBlock`] in [`Function`]
 macro_rules! add_inst {
     ($func:expr, $bb:expr, $inst:expr) => {
-        $func
-            .layout_mut()
-            .bb_mut($bb)
-            .insts_mut()
-            .push_key_back($inst)
-            .unwrap()
+        all_insts!($func, $bb).push_key_back($inst).unwrap()
     };
 }
 
@@ -117,8 +119,8 @@ macro_rules! global_ident {
 
 /// Generate a normal identifier in Koopa IR
 macro_rules! normal_ident {
-    ($def:expr, $id:expr) => {
-        format!("%{}_{}", $def.ident, $id)
+    ($def:expr) => {
+        format!("%{}", $def.ident)
     };
 }
 
@@ -137,8 +139,7 @@ impl Context {
     }
 
     pub fn if_block_ended(&mut self, bb: &BasicBlock) -> bool {
-        let node = self.func_data().layout_mut().bb_mut(*bb);
-        let last = node.insts().back_key().copied();
+        let last = all_insts!(self.func_data(), *bb).back_key().copied();
         match last {
             Some(inst) => {
                 let kind = self.func_data().dfg().value(inst).kind();
@@ -160,8 +161,7 @@ impl Context {
 
         let block = self.block.unwrap();
         let func_data = self.func_data();
-        let block_node = func_data.layout_mut().bb_mut(block);
-        if !block_node.insts().is_empty() || !auto_link {
+        if !all_insts!(func_data, block).is_empty() || !auto_link {
             // If the last block is not empty, or forced not to link, create a new block
             let this = new_bb!(func_data).basic_block(name);
             add_bb!(func_data, this);
@@ -357,9 +357,22 @@ impl GenerateIr<()> for If {
 
 impl GenerateIr<()> for While {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
-        let base_bb = context.block.unwrap();
+        let block = context.block.unwrap();
+        let at_entry = context.func_data().layout().bbs().len() == 1;
 
-        let cond_bb = context.new_block(Some("%cond".into()), true);
+        let cond_bb = if at_entry {
+            // The entry basic block is not allowed to have predecessors
+            // so create a new block for the condition
+            let cond_bb = context.new_block(Some("%cond".into()), false);
+            let func_data = context.func_data();
+            let jump = new_value!(func_data).jump(cond_bb);
+            add_inst!(func_data, block, jump);
+            cond_bb
+        } else {
+            context.new_block(Some("%cond".into()), true)
+        };
+
+        
         let cond = self.cond.generate_on(context)?;
         // use a temporary end block to serve for "break"
         let temp_end_bb = context.new_block(None, false);
@@ -456,6 +469,8 @@ impl GenerateIr<()> for VarDecl {
             } else {
                 todo!()
             };
+            set_value_name!(func_data, alloc, normal_ident!(var_def));
+
             context.add_inst(alloc);
 
             if let Some(init) = init {

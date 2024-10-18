@@ -1,8 +1,28 @@
 fun @main(): i32 {
-%0:
+%entry:
+  jump %cond
+
+%cond:
+  br 1, %body, %0
 
 %1:
-  ret 20
+  jump %0
+
+%body:
+  br 1, %body_0, %2
+
+%3:
+  jump %2
+
+%body_0:
+  jump %body
 
 %2:
+  jump %cond
+
+%4:
+  jump %cond
+
+%0:
+  ret -1
 }
