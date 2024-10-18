@@ -1,7 +1,5 @@
 //! Generate IR from AST
 
-use crate::common::NameGenerator;
-
 use super::ast::*;
 use super::eval::*;
 use super::symbol::*;
@@ -207,7 +205,7 @@ impl GenerateIr<()> for FuncDef {
         context.syb_table.exit_scope();
         assert!(context.syb_table.items.is_empty());
 
-        context.func_data().layout_mut().bbs_mut().pop_back();
+        // context.func_data().layout_mut().bbs_mut().pop_back();
         context.block = None;
         Ok(())
     }
