@@ -66,6 +66,8 @@ trait GenerateIr<T> {
     fn generate_on(&self, context: &mut Context) -> Result<T, AstError>;
 }
 
+/*********************  Utils  *********************/
+
 /// Create a new [`BasicBlock`] in [`Function`]
 macro_rules! new_bb {
     ($func:expr) => {
@@ -134,31 +136,40 @@ impl Context {
         self.block(block);
     }
 
+    pub fn if_block_ended(&mut self, bb: &BasicBlock) -> bool {
+        let node = self.func_data().layout_mut().bb_mut(*bb);
+        let last = node.insts().back_key().copied();
+        match last {
+            Some(inst) => {
+                let kind = self.func_data().dfg().value(inst).kind();
+                match kind {
+                    ValueKind::Jump(_) => true,
+                    ValueKind::Branch(_) => true,
+                    ValueKind::Return(_) => true,
+                    _ => false,
+                }
+            }
+            None => false,
+        }
+    }
+
     /// Generate a new block and append it to the layout
     /// If enabled `auto_link`, It will automatically add a jump to the next block if needed
     pub fn new_block(&mut self, name: Option<String>, auto_link: bool) -> BasicBlock {
+        let current_block_ended = self.if_block_ended(&self.block.unwrap());
+
         let block = self.block.unwrap();
         let func_data = self.func_data();
         let block_node = func_data.layout_mut().bb_mut(block);
         if !block_node.insts().is_empty() || !auto_link {
-            let last = block_node.insts().back_key().copied();
-
-            // If the last block is empty, or forced not to link, create a new block
+            // If the last block is not empty, or forced not to link, create a new block
             let this = new_bb!(func_data).basic_block(name);
             add_bb!(func_data, this);
 
-            // If the last instruction is not a jump, branch or return, add a jump to the next block
-            if auto_link {
-                let kind = func_data.dfg().value(last.unwrap()).kind();
-                match kind {
-                    ValueKind::Jump(_) => {}
-                    ValueKind::Branch(_) => {}
-                    ValueKind::Return(_) => {}
-                    _ => {
-                        let jump = new_value!(func_data).jump(this);
-                        add_inst!(func_data, block, jump);
-                    }
-                }
+            // If the current block is not ended, add a jump to the next block
+            if auto_link && !current_block_ended {
+                let jump = new_value!(func_data).jump(this);
+                add_inst!(func_data, block, jump);
             }
             self.block(this);
         }
@@ -359,11 +370,13 @@ impl GenerateIr<()> for While {
         });
         let body_bb = context.new_block(Some("%body".into()), false);
         self.stmt.generate_on(context)?;
-        let func_data = context.func_data();
 
         // jump back to the condition
-        let jump = new_value!(func_data).jump(cond_bb);
-        context.add_inst(jump);
+        if !context.if_block_ended(&body_bb) {
+            let func_data = context.func_data();
+            let jump = new_value!(func_data).jump(cond_bb);
+            context.add_inst(jump);
+        }
 
         let end_bb = context.new_block(None, true);
         let func_data = context.func_data();
