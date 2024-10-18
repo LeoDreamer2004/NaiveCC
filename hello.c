@@ -1,10 +1,11 @@
 int main() {
-  int a = 1;
-  {
-    a = a + 2;
-    int a = 3;
-    a = a + 4;
+  int a = 0;
+  const int b = 1 - 1 * 2 + 1;
+  int c = 1, d = 2;
+  if (a || b) {
+    c = 3;
+  } else {
+    d = 3;
   }
-  a = a + 5;
-  return a;
+  return a + b + c + d;
 }

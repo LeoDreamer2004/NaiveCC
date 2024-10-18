@@ -104,13 +104,13 @@ macro_rules! as_ptr {
 
 #[derive(Debug, Default)]
 pub struct RegisterDispatcher {
-    map: HashMap<Pointer, Address>,
+    map: HashMap<Pointer, Location>,
     frame_sizes: LinkedList<usize>,
     used: HashSet<RiscVRegister>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Address {
+pub enum Location {
     Register(RiscVRegister),
     Stack(Stack),
 }
@@ -149,7 +149,7 @@ impl RegisterDispatcher {
         reg
     }
 
-    pub fn address(&self, ptr: &ValueData) -> Option<&Address> {
+    pub fn location(&self, ptr: &ValueData) -> Option<&Location> {
         self.map.get(&as_ptr!(ptr))
     }
 
@@ -176,14 +176,14 @@ impl RegisterDispatcher {
     /// Allocate register for the data.
     pub fn ralloc(&mut self, ptr: &ValueData) {
         let reg = self.dispatch(RegisterType::Local);
-        let address = Address::Register(reg);
+        let address = Location::Register(reg);
         self.map.insert(as_ptr!(ptr), address);
     }
 
     /// Allocate memory for the data.
     pub fn malloc(&mut self, ptr: &ValueData, size: usize) -> Result<(), AsmError> {
         let offset = self.frame_size()? as i32;
-        let address = Address::Stack(Stack { offset });
+        let address = Location::Stack(Stack { offset });
         *self.frame_size_mut()? += size;
 
         self.map.insert(as_ptr!(ptr), address);
@@ -239,18 +239,18 @@ impl RegisterDispatcher {
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         let address = self
-            .address(dest)
+            .location(dest)
             .ok_or(AsmError::RegisterNotAssigned(dest.name().clone()))?;
 
         match address {
-            Address::Register(reg) => {
+            Location::Register(reg) => {
                 // move the data from the register to the register
                 if *reg == register {
                     return Ok(());
                 }
                 asm.push(Inst::Mv(Mv(register, *reg)));
             }
-            Address::Stack(stack) => {
+            Location::Stack(stack) => {
                 // save the data in the register to the stack
                 let offset = stack.offset;
                 asm.push(Inst::Sw(Sw(register, &SP, offset)));
@@ -266,8 +266,8 @@ impl RegisterDispatcher {
     pub fn load(&mut self, src: &ValueData, asm: &mut AsmProgram) -> Option<RiscVRegister> {
         match self.map.get(&as_ptr!(src))? {
             // cannot reach register here before we finish the optimization
-            Address::Register(register) => Some(*register),
-            Address::Stack(stack) => {
+            Location::Register(register) => Some(*register),
+            Location::Stack(stack) => {
                 // load the data from the stack
                 let offset = stack.offset;
                 let reg = self.dispatch(RegisterType::Local);

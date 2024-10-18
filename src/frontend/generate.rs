@@ -134,35 +134,42 @@ impl Context {
         self.program.func_mut(self.func.unwrap())
     }
 
-    pub fn new_block(&mut self, name: Option<String>) {
+    /// Create a new block and set it as the current block
+    pub fn create_block(&mut self, name: Option<String>) {
         let block = new_bb!(self.func_data()).basic_block(name);
         add_bb!(self.func_data(), block);
         self.block(block);
     }
 
-    pub fn update_block(&mut self, name: Option<String>) {
+    /// Generate a new block and append it to the layout
+    /// If enabled `auto_link`, It will automatically add a jump to the next block if needed
+    pub fn new_block(&mut self, name: Option<String>, auto_link: bool) -> BasicBlock {
         let block = self.block.unwrap();
         let func_data = self.func_data();
         let block_node = func_data.layout_mut().bb_mut(block);
-        if !block_node.insts().is_empty() {
-            let &last = block_node.insts().back_key().unwrap();
+        if !block_node.insts().is_empty() || !auto_link {
+            let last = block_node.insts().back_key().copied();
 
+            // If the last block is empty, or forced not to link, create a new block
             let this = new_bb!(func_data).basic_block(name);
             add_bb!(func_data, this);
 
             // If the last instruction is not a jump, branch or return, add a jump to the next block
-            let kind = func_data.dfg().value(last).kind();
-            match kind {
-                ValueKind::Jump(_) => {}
-                ValueKind::Branch(_) => {}
-                ValueKind::Return(_) => {}
-                _ => {
-                    let jump = new_value!(func_data).jump(this);
-                    add_inst!(func_data, block, jump);
+            if auto_link {
+                let kind = func_data.dfg().value(last.unwrap()).kind();
+                match kind {
+                    ValueKind::Jump(_) => {}
+                    ValueKind::Branch(_) => {}
+                    ValueKind::Return(_) => {}
+                    _ => {
+                        let jump = new_value!(func_data).jump(this);
+                        add_inst!(func_data, block, jump);
+                    }
                 }
             }
             self.block(this);
         }
+        self.block.unwrap()
     }
 
     pub fn add_inst(&mut self, inst: Value) {
@@ -201,7 +208,7 @@ impl GenerateIr<()> for FuncDef {
 
         let func = context.program.new_func(func);
         context.func(func);
-        context.new_block(Some("%entry".into()));
+        context.create_block(Some("%entry".into()));
 
         context.syb_table.enter_scope();
         self.block.generate_on(context)?;
@@ -229,7 +236,7 @@ impl GenerateIr<()> for Block {
             return Ok(());
         }
 
-        context.update_block(None);
+        context.new_block(None, true);
         context.syb_table.enter_scope();
 
         for block_item in &self.block_items {
@@ -253,7 +260,7 @@ impl GenerateIr<()> for Block {
             };
         }
         context.syb_table.exit_scope();
-        context.update_block(None);
+        context.new_block(None, true);
         Ok(())
     }
 }
@@ -310,14 +317,34 @@ impl GenerateIr<()> for If {
         let cond = match &self.cond {
             Cond::LOrExp(exp) => exp.generate_on(context)?,
         };
-        // always create a new block for the then statement
-        // even if it is not a block statement
-        context.update_block(Some("%then".into()));
+        let base_bb = context.block.unwrap();
+
+        let true_bb = context.new_block(Some("%then".into()), false);
         self.stmt.generate_on(context)?;
+         // always create a new ending block for the then statement
+        // even if it is not a block statement       
+        let true_end_bb = context.new_block(Some("%then_end".into()), true);
+
         if let Some(else_stmt) = &self.else_stmt {
-            context.update_block(Some("%else".into()));
+            let false_bb = context.new_block(Some("%else".into()), false);
             else_stmt.generate_on(context)?;
+            let end_bb = context.new_block(None, true);
+
+            let func_data = context.func_data();
+            // branch to true/false
+            let branch = new_value!(func_data).branch(cond, true_bb, false_bb);
+            add_inst!(func_data, base_bb, branch);
+            // true jump to end
+            let jump = new_value!(func_data).jump(end_bb);
+            add_inst!(func_data, true_end_bb, jump);
+        } else {
+            let end_bb = context.new_block(None, true);
+            // branch to true/end
+            let func_data = context.func_data();
+            let branch = new_value!(func_data).branch(cond, true_bb, end_bb);
+            add_inst!(func_data, base_bb, branch);
         };
+
         Ok(())
         // todo!()
     }
