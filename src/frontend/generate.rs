@@ -372,7 +372,7 @@ impl GenerateIr<()> for While {
         self.stmt.generate_on(context)?;
 
         // jump back to the condition
-        if !context.if_block_ended(&body_bb) {
+        if !context.if_block_ended(&context.block.unwrap()) {
             let func_data = context.func_data();
             let jump = new_value!(func_data).jump(cond_bb);
             context.add_inst(jump);
