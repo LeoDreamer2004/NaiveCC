@@ -7,6 +7,7 @@ use super::loops::*;
 use super::symbol::*;
 use koopa::back::KoopaGenerator;
 use koopa::ir::builder_traits::*;
+use koopa::ir::Type;
 use koopa::ir::ValueKind;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value};
 use std::io;
@@ -31,16 +32,6 @@ pub struct Context {
     pub func: Option<Function>,
     pub block: Option<BasicBlock>,
     pub loop_stack: LoopStack,
-}
-
-impl Context {
-    pub fn func(&mut self, func: Function) {
-        self.func = Some(func);
-    }
-
-    pub fn block(&mut self, block: BasicBlock) {
-        self.block = Some(block);
-    }
 }
 
 #[derive(Debug)]
@@ -128,6 +119,14 @@ macro_rules! normal_ident {
 /*********************  Implementations  *********************/
 
 impl Context {
+    pub fn func(&mut self, func: Function) {
+        self.func = Some(func);
+    }
+
+    pub fn block(&mut self, block: BasicBlock) {
+        self.block = Some(block);
+    }
+
     pub fn func_data(&mut self) -> &mut FunctionData {
         self.program.func_mut(self.func.unwrap())
     }
@@ -182,6 +181,14 @@ impl Context {
         self.block = None;
     }
 
+    pub fn alloc_and_store(&mut self, value: Value, b_type: Type) -> Value {
+        let alloc = new_value!(self.func_data()).alloc(b_type);
+        let store = new_value!(self.func_data()).store(value, alloc);
+        self.add_inst(alloc);
+        self.add_inst(store);
+        alloc
+    }
+
     pub fn in_entry(&mut self) -> bool {
         self.func_data().layout().bbs().len() == 1
     }
@@ -233,16 +240,11 @@ impl GenerateIr<()> for FuncDef {
 
         // Add parameters to the symbol table
         for (i, param) in (&self.params).into_iter().enumerate() {
-            let func_data = context.func_data();
-            let value = func_data.params()[i];
-            let alloc = new_value!(func_data).alloc(param.b_type.into());
-            set_value_name!(func_data, alloc, normal_ident!(param));
-            let store = new_value!(func_data).store(value, alloc);
-            context.add_inst(alloc);
-            context.add_inst(store);
+            let value = context.func_data().params()[i];
+            let alloc = context.alloc_and_store(value, param.b_type.into());
+            set_value_name!(context.func_data(), alloc, normal_ident!(param));
             context.syb_table.add_var(param.to_symbol(context)?, alloc);
         }
-       
 
         self.block.generate_on(context)?;
         context.syb_table.exit_scope();
@@ -584,25 +586,33 @@ impl GenerateIr<Value> for LOrExp {
                 let zero = new_value!(func_data).integer(0);
                 let lhs = op_exp.l_or_exp.generate_on(context)?;
                 let func_data = context.func_data();
-                let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
-                context.add_inst(lhs);
+                let l_binary = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
+                context.add_inst(l_binary);
+                let lhs = context.alloc_and_store(l_binary, Type::get_i32());
                 let base_bb = context.block.unwrap();
 
                 // false block
                 let false_bb = context.new_block(Some("%or_else".into()), false);
                 let rhs = op_exp.l_and_exp.generate_on(context)?;
                 let func_data = context.func_data();
-                let rhs = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
-                context.add_inst(rhs);
+                let r_binary = new_value!(func_data).binary(BinaryOp::NotEq, zero, rhs);
+                context.add_inst(r_binary);
+                let rhs = context.alloc_and_store(r_binary, Type::get_i32());
 
                 // end block
                 let end_bb = context.new_block(None, true);
                 let func_data = context.func_data();
-                let branch = new_value!(func_data).branch(lhs, end_bb, false_bb);
+                let branch = new_value!(func_data).branch(l_binary, end_bb, false_bb);
                 add_inst!(func_data, base_bb, branch);
-
+                
+                // return value
+                let lhs = new_value!(func_data).load(lhs);
+                let rhs = new_value!(func_data).load(rhs);
                 let value = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
+                context.add_inst(lhs);
+                context.add_inst(rhs);
                 context.add_inst(value);
+
                 Ok(value)
             }
         }
@@ -617,29 +627,37 @@ impl GenerateIr<Value> for LAndExp {
                 // short circuit
 
                 // base block
-                let base_bb = context.block.unwrap();
                 let func_data = context.func_data();
                 let zero = new_value!(func_data).integer(0);
                 let lhs = op_exp.l_and_exp.generate_on(context)?;
                 let func_data = context.func_data();
-                let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
-                context.add_inst(lhs);
+                let l_binary = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
+                context.add_inst(l_binary);
+                let lhs = context.alloc_and_store(l_binary, Type::get_i32());
+                let base_bb = context.block.unwrap();
 
                 // true block
                 let true_bb = context.new_block(Some("%and_else".into()), false);
                 let rhs = op_exp.eq_exp.generate_on(context)?;
                 let func_data = context.func_data();
-                let rhs = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
-                context.add_inst(rhs);
+                let r_binary = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
+                context.add_inst(r_binary);
+                let rhs = context.alloc_and_store(r_binary, Type::get_i32());
 
                 // end block
                 let end_bb = context.new_block(None, true);
                 let func_data = context.func_data();
-                let branch = new_value!(func_data).branch(lhs, true_bb, end_bb);
+                let branch = new_value!(func_data).branch(l_binary, true_bb, end_bb);
                 add_inst!(func_data, base_bb, branch);
 
+                // return value
+                let lhs = new_value!(func_data).load(lhs);
+                let rhs = new_value!(func_data).load(rhs);
                 let value = new_value!(func_data).binary(BinaryOp::And, lhs, rhs);
+                context.add_inst(lhs);
+                context.add_inst(rhs);
                 context.add_inst(value);
+                
                 Ok(value)
             }
         }
