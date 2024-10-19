@@ -203,9 +203,9 @@ impl Context {
 impl GenerateIr<()> for CompUnit {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
         // builtin functions
-        for func_data in builtin_functions() {
-            context.program.new_func(func_data);
-        }
+        // for func_data in builtin_functions() {
+        //     context.program.new_func(func_data);
+        // }
 
         for comp_item in &self.comp_items {
             match comp_item {
