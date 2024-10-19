@@ -4,6 +4,6 @@ int f() {
 
 int main() {
   int sum = 0;
-  sum =(f() || f());
+  sum =(f() || 5);
   return sum;
 }

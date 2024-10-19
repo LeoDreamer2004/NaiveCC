@@ -588,7 +588,7 @@ impl GenerateIr<Value> for LOrExp {
                 let func_data = context.func_data();
                 let l_binary = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
                 context.add_inst(l_binary);
-                let lhs = context.alloc_and_store(l_binary, Type::get_i32());
+                let result = context.alloc_and_store(l_binary, Type::get_i32());
                 let base_bb = context.block.unwrap();
 
                 // false block
@@ -596,24 +596,19 @@ impl GenerateIr<Value> for LOrExp {
                 let rhs = op_exp.l_and_exp.generate_on(context)?;
                 let func_data = context.func_data();
                 let r_binary = new_value!(func_data).binary(BinaryOp::NotEq, zero, rhs);
+                let cover = new_value!(func_data).store(r_binary, result);
                 context.add_inst(r_binary);
-                let rhs = context.alloc_and_store(r_binary, Type::get_i32());
+                context.add_inst(cover);
 
                 // end block
                 let end_bb = context.new_block(None, true);
                 let func_data = context.func_data();
                 let branch = new_value!(func_data).branch(l_binary, end_bb, false_bb);
                 add_inst!(func_data, base_bb, branch);
-                
-                // return value
-                let lhs = new_value!(func_data).load(lhs);
-                let rhs = new_value!(func_data).load(rhs);
-                let value = new_value!(func_data).binary(BinaryOp::Or, lhs, rhs);
-                context.add_inst(lhs);
-                context.add_inst(rhs);
-                context.add_inst(value);
 
-                Ok(value)
+                let result = new_value!(func_data).load(result);
+                context.add_inst(result);
+                Ok(result)
             }
         }
     }
@@ -633,7 +628,7 @@ impl GenerateIr<Value> for LAndExp {
                 let func_data = context.func_data();
                 let l_binary = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
                 context.add_inst(l_binary);
-                let lhs = context.alloc_and_store(l_binary, Type::get_i32());
+                let result = context.alloc_and_store(l_binary, Type::get_i32());
                 let base_bb = context.block.unwrap();
 
                 // true block
@@ -641,8 +636,9 @@ impl GenerateIr<Value> for LAndExp {
                 let rhs = op_exp.eq_exp.generate_on(context)?;
                 let func_data = context.func_data();
                 let r_binary = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
+                let cover = new_value!(func_data).store(r_binary, result);
                 context.add_inst(r_binary);
-                let rhs = context.alloc_and_store(r_binary, Type::get_i32());
+                context.add_inst(cover);
 
                 // end block
                 let end_bb = context.new_block(None, true);
@@ -650,15 +646,9 @@ impl GenerateIr<Value> for LAndExp {
                 let branch = new_value!(func_data).branch(l_binary, true_bb, end_bb);
                 add_inst!(func_data, base_bb, branch);
 
-                // return value
-                let lhs = new_value!(func_data).load(lhs);
-                let rhs = new_value!(func_data).load(rhs);
-                let value = new_value!(func_data).binary(BinaryOp::And, lhs, rhs);
-                context.add_inst(lhs);
-                context.add_inst(rhs);
-                context.add_inst(value);
-                
-                Ok(value)
+                let result = new_value!(func_data).load(result);
+                context.add_inst(result);
+                Ok(result)
             }
         }
     }
