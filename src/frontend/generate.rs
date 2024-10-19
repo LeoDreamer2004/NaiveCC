@@ -232,14 +232,17 @@ impl GenerateIr<()> for FuncDef {
         context.syb_table.enter_scope();
 
         // Add parameters to the symbol table
-        for param in &self.params {
-            let alloc = new_value!(context.func_data()).alloc(param.b_type.into());
-            set_value_name!(context.func_data(), alloc, normal_ident!(param));
+        for (i, param) in (&self.params).into_iter().enumerate() {
+            let func_data = context.func_data();
+            let value = func_data.params()[i];
+            let alloc = new_value!(func_data).alloc(param.b_type.into());
+            set_value_name!(func_data, alloc, normal_ident!(param));
+            let store = new_value!(func_data).store(value, alloc);
             context.add_inst(alloc);
-            context
-                .syb_table
-                .add_var(param.clone().to_symbol(context)?, alloc);
+            context.add_inst(store);
+            context.syb_table.add_var(param.to_symbol(context)?, alloc);
         }
+       
 
         self.block.generate_on(context)?;
         context.syb_table.exit_scope();
@@ -584,7 +587,7 @@ impl GenerateIr<Value> for LOrExp {
                 let func_data = context.func_data();
                 let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
                 context.add_inst(lhs);
-                
+
                 // false block
                 let false_bb = context.new_block(Some("%or_else".into()), false);
                 let rhs = op_exp.l_and_exp.generate_on(context)?;
@@ -621,7 +624,7 @@ impl GenerateIr<Value> for LAndExp {
                 let func_data = context.func_data();
                 let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
                 context.add_inst(lhs);
-                
+
                 // true block
                 let true_bb = context.new_block(Some("%and_else".into()), false);
                 let rhs = op_exp.eq_exp.generate_on(context)?;

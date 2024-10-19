@@ -185,13 +185,13 @@ impl ArraySizable for FuncFParam {
 }
 
 pub trait IntoSymbol {
-    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError>;
+    fn to_symbol(&self, context: &Context) -> Result<Symbol, AstError>;
 }
 
 impl IntoSymbol for ConstDef {
-    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError> {
-        let ident = self.ident;
-        match self.const_init_val {
+    fn to_symbol(&self, context: &Context) -> Result<Symbol, AstError> {
+        let ident = self.ident.clone();
+        match &self.const_init_val {
             ConstInitVal::ConstExp(const_exp) => {
                 let value = const_exp.eval(context)?;
                 Ok(Symbol::Const(ConstSymbol { ident, value }))
@@ -204,9 +204,9 @@ impl IntoSymbol for ConstDef {
 }
 
 impl IntoSymbol for VarDef {
-    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError> {
+    fn to_symbol(&self, context: &Context) -> Result<Symbol, AstError> {
         if self.is_single() {
-            let ident = self.ident;
+            let ident = self.ident.clone();
             Ok(Symbol::Var(VarSymbol { ident }))
         } else {
             todo!();
@@ -215,9 +215,9 @@ impl IntoSymbol for VarDef {
 }
 
 impl IntoSymbol for FuncFParam {
-    fn to_symbol(self, context: &Context) -> Result<Symbol, AstError> {
+    fn to_symbol(&self, context: &Context) -> Result<Symbol, AstError> {
         if self.is_single() {
-            let ident = self.ident;
+            let ident = self.ident.clone();
             Ok(Symbol::Var(VarSymbol { ident }))
         } else {
             todo!();
