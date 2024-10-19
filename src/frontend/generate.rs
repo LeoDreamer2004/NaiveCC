@@ -580,13 +580,13 @@ impl GenerateIr<Value> for LOrExp {
                 // short circuit
 
                 // base block
-                let base_bb = context.block.unwrap();
                 let func_data = context.func_data();
                 let zero = new_value!(func_data).integer(0);
                 let lhs = op_exp.l_or_exp.generate_on(context)?;
                 let func_data = context.func_data();
                 let lhs = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
                 context.add_inst(lhs);
+                let base_bb = context.block.unwrap();
 
                 // false block
                 let false_bb = context.new_block(Some("%or_else".into()), false);
