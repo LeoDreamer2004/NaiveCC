@@ -203,9 +203,9 @@ impl Context {
 impl GenerateIr<()> for CompUnit {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
         // builtin functions
-        // for func_data in builtin_functions() {
-        //     context.program.new_func(func_data);
-        // }
+        for func_data in builtin_functions() {
+            context.program.new_func(func_data);
+        }
 
         for comp_item in &self.comp_items {
             match comp_item {
@@ -364,8 +364,13 @@ impl GenerateIr<()> for If {
         self.stmt.generate_on(context)?;
         // always create a new ending block for the then statement
         // even if it is not a block statement
-        let true_end_bb = context.new_block(Some("%then_end".into()), true);
-
+        let true_end_bb = if context.if_block_ended(&true_bb) {
+            context.pop_block();
+            context.block(true_bb);
+            None
+        } else {
+            Some(context.new_block(Some("%then_end".into()), true))
+        };
         if let Some(else_stmt) = &self.else_stmt {
             let false_bb = context.new_block(Some("%else".into()), false);
             else_stmt.generate_on(context)?;
@@ -376,8 +381,10 @@ impl GenerateIr<()> for If {
             let branch = new_value!(func_data).branch(cond, true_bb, false_bb);
             add_inst!(func_data, base_bb, branch);
             // true jump to end
-            let jump = new_value!(func_data).jump(end_bb);
-            add_inst!(func_data, true_end_bb, jump);
+            if let Some(true_end_bb) = true_end_bb {
+                let jump = new_value!(func_data).jump(end_bb);
+                add_inst!(func_data, true_end_bb, jump);
+            }
         } else {
             let end_bb = context.new_block(None, true);
             // branch to true/end

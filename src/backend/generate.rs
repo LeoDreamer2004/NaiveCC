@@ -61,7 +61,11 @@ impl GenerateAsm<()> for Program {
         asm.push(Inst::Directive(Directive::Text));
         for &func in self.func_layout() {
             context.function = Some(func);
-            self.func(func).generate_on(context, asm)?;
+            let func_data = self.func(func);
+            // skip declaration
+            if !func_data.layout().entry_bb().is_none() {
+                func_data.generate_on(context, asm)?;
+            }
         }
         Ok(())
     }
@@ -181,7 +185,7 @@ impl GenerateAsm<()> for ValueData {
                 Ok(())
             }
             // ValueKind::Call(call) => {
-                // todo!()
+            // todo!()
             // }
             _ => todo!(),
         }
