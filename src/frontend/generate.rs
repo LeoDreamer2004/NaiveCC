@@ -176,11 +176,6 @@ impl Context {
         self.block.unwrap()
     }
 
-    pub fn pop_block(&mut self) {
-        self.func_data().layout_mut().bbs_mut().pop_back();
-        self.block = None;
-    }
-
     pub fn alloc_and_store(&mut self, value: Value, b_type: Type) -> Value {
         let alloc = new_value!(self.func_data()).alloc(b_type);
         let store = new_value!(self.func_data()).store(value, alloc);
@@ -249,16 +244,16 @@ impl GenerateIr<()> for FuncDef {
         self.block.generate_on(context)?;
         context.syb_table.exit_scope();
 
-        match self.func_type {
-            FuncType::Void => {
+        // match self.func_type {
+            // FuncType::Void => {
                 let func_data = context.func_data();
                 let ret = new_value!(func_data).ret(None);
                 context.add_inst(ret);
-            }
-            FuncType::BType(_) => {
-                context.pop_block();
-            }
-        };
+            // }
+            // FuncType::BType(_) => {
+                // context.pop_block();
+            // }
+        // };
         context.block = None;
         context.func = None;
         Ok(())
@@ -364,19 +359,7 @@ impl GenerateIr<()> for If {
         self.stmt.generate_on(context)?;
         // always create a new ending block for the then statement
         // even if it is not a block statement
-
-        // TODO: Optimize code here!
-        let true_end_bb = if context.if_block_ended(&true_bb) {
-            if (context.block.unwrap() != true_bb) && !self.else_stmt.is_none() {
-                // pop the extra empty block, because the then block is ended
-                // which means it does not need to jump to the end block
-                context.pop_block();
-                context.block(true_bb);
-            }
-            None
-        } else {
-            Some(context.new_block(Some("%then_end".into()), true))
-        };
+        let true_end_bb = context.new_block(Some("%then_end".into()), true);
 
         if let Some(else_stmt) = &self.else_stmt {
             let false_bb = context.new_block(Some("%else".into()), false);
@@ -388,10 +371,8 @@ impl GenerateIr<()> for If {
             let branch = new_value!(func_data).branch(cond, true_bb, false_bb);
             add_inst!(func_data, base_bb, branch);
             // true jump to end
-            if let Some(true_end_bb) = true_end_bb {
-                let jump = new_value!(func_data).jump(end_bb);
-                add_inst!(func_data, true_end_bb, jump);
-            }
+            let jump = new_value!(func_data).jump(end_bb);
+            add_inst!(func_data, true_end_bb, jump);
         } else {
             let end_bb = context.new_block(None, true);
             // branch to true/end

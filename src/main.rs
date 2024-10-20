@@ -6,7 +6,9 @@
 
 use backend::{emit_asm, AsmError};
 use frontend::{build_ir, emit_ir, AstError};
+use koopa::opt::{Pass, PassManager};
 use lalrpop_util::lalrpop_mod;
+use optimize::{DeadBlockCodeElimination, DeadValueCodeElimination};
 use std::env::args;
 use std::fs::{read_to_string, File};
 use std::io;
@@ -15,6 +17,7 @@ use std::process::exit;
 mod backend;
 mod common;
 mod frontend;
+mod optimize;
 
 lalrpop_mod!(sysy);
 
@@ -74,6 +77,12 @@ fn _main(args: CommandLineArgs) -> Result<(), Error> {
         .parse(&input)
         .map_err(|_| Error::Parse)?;
     let mut program = build_ir(ast).map_err(Error::Ir)?;
+
+    let mut passman = PassManager::new();
+    passman.register(Pass::Function(Box::new(DeadBlockCodeElimination::new())));
+    passman.register(Pass::Function(Box::new(DeadValueCodeElimination::new())));
+    passman.run_passes(&mut program);
+
     // println!("{:#?}", ast);
     match args.mode {
         Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,
