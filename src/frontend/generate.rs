@@ -364,8 +364,10 @@ impl GenerateIr<()> for If {
         self.stmt.generate_on(context)?;
         // always create a new ending block for the then statement
         // even if it is not a block statement
+
+        // TODO: Optimize code here!
         let true_end_bb = if context.if_block_ended(&true_bb) {
-            if context.block.unwrap() != true_bb {
+            if (context.block.unwrap() != true_bb) && !self.else_stmt.is_none() {
                 // pop the extra empty block, because the then block is ended
                 // which means it does not need to jump to the end block
                 context.pop_block();
