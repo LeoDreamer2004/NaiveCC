@@ -365,12 +365,17 @@ impl GenerateIr<()> for If {
         // always create a new ending block for the then statement
         // even if it is not a block statement
         let true_end_bb = if context.if_block_ended(&true_bb) {
-            context.pop_block();
-            context.block(true_bb);
+            if context.block.unwrap() != true_bb {
+                // pop the extra empty block, because the then block is ended
+                // which means it does not need to jump to the end block
+                context.pop_block();
+                context.block(true_bb);
+            }
             None
         } else {
             Some(context.new_block(Some("%then_end".into()), true))
         };
+
         if let Some(else_stmt) = &self.else_stmt {
             let false_bb = context.new_block(Some("%else".into()), false);
             else_stmt.generate_on(context)?;
