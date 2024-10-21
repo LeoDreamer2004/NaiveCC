@@ -1,12 +1,26 @@
 use super::instruction::*;
-use super::register::{self, RegisterDispatcher, RegisterType, RiscVRegister};
+use super::register::{self, AsmElement, RegisterDispatcher, RegisterType, RiscVRegister};
 use crate::common::NameGenerator;
 use koopa::ir::entities::ValueData;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value, ValueKind};
 use std::io::Write;
 
-pub trait GenerateAsm<T> {
-    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<T, AsmError>;
+macro_rules! func_data {
+    ($context:expr) => {
+        $context.program.func($context.function.unwrap())
+    };
+}
+
+macro_rules! value_data {
+    ($context:expr, $value:expr) => {
+        func_data!($context).dfg().value($value)
+    };
+}
+
+macro_rules! original_ident {
+    ($func_data:expr) => {
+        $func_data.name()[1..].to_string()
+    };
 }
 
 pub struct Context<'a> {
@@ -29,24 +43,15 @@ impl<'a> Context<'a> {
             value: None,
         }
     }
-}
 
-macro_rules! func_data {
-    ($context:expr) => {
-        $context.program.func($context.function.unwrap())
-    };
-}
-
-macro_rules! value_data {
-    ($context:expr, $value:expr) => {
-        func_data!($context).dfg().value($value)
-    };
-}
-
-macro_rules! original_ident {
-    ($func_data:expr) => {
-        $func_data.name()[1..].to_string()
-    };
+    pub fn load_value_to_reg(
+        &mut self,
+        value: Value,
+        asm: &mut AsmProgram,
+    ) -> Result<RiscVRegister, AsmError> {
+        let e = value.into_element(self);
+        self.dispatcher.load(&e, asm)
+    }
 }
 
 #[derive(Debug)]
@@ -54,6 +59,10 @@ pub enum AsmError {
     NullLocation(Option<String>),
     FunctionNotFound(Function),
     InvalidStackFrame,
+}
+
+pub trait GenerateAsm<T> {
+    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<T, AsmError>;
 }
 
 impl GenerateAsm<()> for Program {
@@ -106,18 +115,18 @@ impl GenerateAsm<()> for ValueData {
                 context.dispatcher.malloc(self, 4)?;
             }
             ValueKind::Store(store) => {
-                let rs = store.value().into_element().generate_on(context, asm)?;
+                let rs = context.load_value_to_reg(store.value(), asm)?;
                 let dest = value_data!(context, store.dest());
                 context.dispatcher.save_val_to(dest, rs, asm)?;
             }
             ValueKind::Load(load) => {
-                let rs = load.src().into_element().generate_on(context, asm)?;
+                let rs = context.load_value_to_reg(load.src(), asm)?;
                 context.dispatcher.new(self)?;
                 context.dispatcher.save_val_to(self, rs, asm)?;
             }
             ValueKind::Binary(binary) => {
-                let rs1 = binary.lhs().into_element().generate_on(context, asm)?;
-                let rs2 = binary.rhs().into_element().generate_on(context, asm)?;
+                let rs1 = context.load_value_to_reg(binary.lhs(), asm)?;
+                let rs2 = context.load_value_to_reg(binary.rhs(), asm)?;
                 let rd = context.dispatcher.dispatch(RegisterType::Temp);
                 let insts = match binary.op() {
                     BinaryOp::Add => vec![Inst::Add(Add(rd, rs1, rs2))],
@@ -165,9 +174,8 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
-                    let rs = value.into_element().generate_on(context, asm)?;
-                    asm.push(Inst::Mv(Mv(&register::A0, rs)));
-                    context.dispatcher.release(rs);
+                    let e = value.into_element(context);
+                    context.dispatcher.load_to(&e, register::A0, asm)?;
                 }
                 context.dispatcher.out_frame(asm)?;
                 asm.push(Inst::Ret(Ret {}));
@@ -178,7 +186,7 @@ impl GenerateAsm<()> for ValueData {
                 asm.push(Inst::J(J(context.label_gen.get_name(label))));
             }
             ValueKind::Branch(branch) => {
-                let rs = branch.cond().into_element().generate_on(context, asm)?;
+                let rs = context.load_value_to_reg(branch.cond(), asm)?;
                 let true_bb = branch.true_bb();
                 asm.push(Inst::Bnez(Bnez(rs, context.label_gen.get_name(true_bb))));
                 let false_bb = branch.false_bb();
@@ -189,10 +197,14 @@ impl GenerateAsm<()> for ValueData {
                 let params = call.args().iter().map(|&param| value_data!(context, param));
                 let params: Vec<&ValueData> = params.collect();
                 context.dispatcher.save_func_params(params, asm)?;
-                let ident = original_ident!(func_data!(context));
+
+                let func_data = context.program.func(call.callee());
+                let ident = original_ident!(func_data);
                 asm.push(Inst::Call(Call(ident)));
                 context.dispatcher.new(self)?;
-                context.dispatcher.save_val_to(self, &register::A0, asm)?;
+                if !func_data.ty().is_unit() {
+                    context.dispatcher.save_val_to(self, register::A0, asm)?;
+                }
             }
             _ => todo!(),
         }
@@ -200,33 +212,16 @@ impl GenerateAsm<()> for ValueData {
     }
 }
 
-/// Basic element in an instruction, including immediate value and register.
-pub struct ElementData {
-    pub value: Value,
-}
-
-pub trait IntoElement {
-    fn into_element(self) -> ElementData;
+trait IntoElement {
+    fn into_element(self, context: &Context) -> AsmElement;
 }
 
 impl IntoElement for Value {
-    fn into_element(self) -> ElementData {
-        ElementData {
-            value: self.clone(),
-        }
-    }
-}
-
-impl GenerateAsm<RiscVRegister> for ElementData {
-    fn generate_on(
-        &self,
-        context: &mut Context,
-        asm: &mut AsmProgram,
-    ) -> Result<RiscVRegister, AsmError> {
-        let data = value_data!(context, self.value);
+    fn into_element(self, context: &Context) -> AsmElement {
+        let data = value_data!(context, self);
         match data.kind() {
-            ValueKind::Integer(int) => context.dispatcher.load_imm(int.value(), asm),
-            _ => context.dispatcher.load_val(data, asm),
+            ValueKind::Integer(int) => AsmElement::Imm(int.value()),
+            _ => AsmElement::Loc(data),
         }
     }
 }
