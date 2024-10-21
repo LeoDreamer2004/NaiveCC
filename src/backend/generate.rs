@@ -51,7 +51,7 @@ macro_rules! original_ident {
 
 #[derive(Debug)]
 pub enum AsmError {
-    RegisterNotAssigned(Option<String>),
+    NullLocation(Option<String>),
     FunctionNotFound(Function),
     InvalidStackFrame,
 }
@@ -75,7 +75,14 @@ impl GenerateAsm<()> for FunctionData {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
         asm.push(Inst::Directive(Directive::Globl(original_ident!(self))));
         asm.push(Inst::Label(original_ident!(self)));
-        context.dispatcher.new_frame(asm);
+        context.dispatcher.new_frame(self, asm);
+        let params: Vec<&ValueData> = self
+            .params()
+            .iter()
+            .map(|&param| value_data!(context, param))
+            .collect();
+        context.dispatcher.load_func_params(params, asm)?;
+
         for (&bb, node) in self.layout().bbs() {
             asm.push(Inst::Label(context.label_gen.get_name(bb)));
             for &inst in node.insts().keys() {
@@ -84,7 +91,6 @@ impl GenerateAsm<()> for FunctionData {
             }
         }
         context.dispatcher.end_frame(asm)?;
-        // dbg!(&context.dispatcher);
         Ok(())
     }
 }
@@ -97,24 +103,22 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Alloc(_) => {
                 // TODO: Malloc or Register? That's a question
-                context.dispatcher.malloc(self, 4)
+                context.dispatcher.malloc(self, 4)?;
             }
             ValueKind::Store(store) => {
                 let rs = store.value().into_element().generate_on(context, asm)?;
                 let dest = value_data!(context, store.dest());
-                context.dispatcher.save(dest, rs, asm)?;
-                Ok(())
+                context.dispatcher.save_val_to(dest, rs, asm)?;
             }
             ValueKind::Load(load) => {
                 let rs = load.src().into_element().generate_on(context, asm)?;
                 context.dispatcher.new(self)?;
-                context.dispatcher.save(self, rs, asm)?;
-                Ok(())
+                context.dispatcher.save_val_to(self, rs, asm)?;
             }
             ValueKind::Binary(binary) => {
                 let rs1 = binary.lhs().into_element().generate_on(context, asm)?;
                 let rs2 = binary.rhs().into_element().generate_on(context, asm)?;
-                let rd = context.dispatcher.dispatch(RegisterType::Local);
+                let rd = context.dispatcher.dispatch(RegisterType::Temp);
                 let insts = match binary.op() {
                     BinaryOp::Add => vec![Inst::Add(Add(rd, rs1, rs2))],
                     BinaryOp::Sub => vec![Inst::Sub(Sub(rd, rs1, rs2))],
@@ -154,26 +158,24 @@ impl GenerateAsm<()> for ValueData {
                 asm.extend(insts);
 
                 context.dispatcher.new(self)?;
-                context.dispatcher.save(self, rd, asm)?;
+                context.dispatcher.save_val_to(self, rd, asm)?;
 
                 context.dispatcher.release(rs1);
                 context.dispatcher.release(rs2);
-                Ok(())
             }
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
                     let rs = value.into_element().generate_on(context, asm)?;
                     asm.push(Inst::Mv(Mv(&register::A0, rs)));
-                    asm.push(Inst::Ret(Ret {}));
                     context.dispatcher.release(rs);
                 }
-                Ok(())
+                context.dispatcher.out_frame(asm)?;
+                asm.push(Inst::Ret(Ret {}));
             }
             ValueKind::Jump(jump) => {
                 let label = jump.target();
                 // func_data!(context).dfg().bbs().get(&label).unwrap();
                 asm.push(Inst::J(J(context.label_gen.get_name(label))));
-                Ok(())
             }
             ValueKind::Branch(branch) => {
                 let rs = branch.cond().into_element().generate_on(context, asm)?;
@@ -182,13 +184,19 @@ impl GenerateAsm<()> for ValueData {
                 let false_bb = branch.false_bb();
                 asm.push(Inst::J(J(context.label_gen.get_name(false_bb))));
                 context.dispatcher.release(rs);
-                Ok(())
             }
-            // ValueKind::Call(call) => {
-            // todo!()
-            // }
+            ValueKind::Call(call) => {
+                let params = call.args().iter().map(|&param| value_data!(context, param));
+                let params: Vec<&ValueData> = params.collect();
+                context.dispatcher.save_func_params(params, asm)?;
+                let ident = original_ident!(func_data!(context));
+                asm.push(Inst::Call(Call(ident)));
+                context.dispatcher.new(self)?;
+                context.dispatcher.save_val_to(self, &register::A0, asm)?;
+            }
             _ => todo!(),
         }
+        Ok(())
     }
 }
 
@@ -217,17 +225,8 @@ impl GenerateAsm<RiscVRegister> for ElementData {
     ) -> Result<RiscVRegister, AsmError> {
         let data = value_data!(context, self.value);
         match data.kind() {
-            ValueKind::Integer(int) => {
-                let imm = int.value();
-                if imm == 0 {
-                    // simple optimization for zero
-                    return Ok(&register::ZERO);
-                };
-                let rd = context.dispatcher.dispatch(RegisterType::Local);
-                asm.push(Inst::Li(Li(rd, imm)));
-                Ok(rd)
-            }
-            _ => context.dispatcher.load_or_error(data, asm),
+            ValueKind::Integer(int) => context.dispatcher.load_imm(int.value(), asm),
+            _ => context.dispatcher.load_val(data, asm),
         }
     }
 }

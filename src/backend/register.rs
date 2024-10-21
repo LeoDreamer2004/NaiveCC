@@ -1,7 +1,10 @@
 use super::{instruction::*, AsmError};
 use koopa::ir::entities::ValueData;
-use std::collections::{HashSet, LinkedList};
-use std::{collections::HashMap, fmt};
+use koopa::ir::values::Call;
+use koopa::ir::{FunctionData, ValueKind};
+use std::cmp::{max, min};
+use std::collections::{HashMap, HashSet, LinkedList};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Register {
@@ -74,22 +77,18 @@ pub enum RegisterType {
     Argument,
     Saved,
     Temp,
-    Local,
 }
 
 impl RegisterType {
-    const ARGU_REGISTERS: [RiscVRegister; 6] = [A2, A3, A4, A5, A6, A7];
+    const ARGU_REGISTERS: [RiscVRegister; 8] = [A0, A1, A2, A3, A4, A5, A6, A7];
     const SAVED_REGISTERS: [RiscVRegister; 11] = [S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11];
     const TEMP_REGISTERS: [RiscVRegister; 7] = [T0, T1, T2, T3, T4, T5, T6];
-    const LOCAL_REGISTERS: [RiscVRegister; 13] =
-        [A2, A3, A4, A5, A6, A7, T0, T1, T2, T3, T4, T5, T6];
 
     pub fn all(&self) -> Vec<RiscVRegister> {
         match self {
             RegisterType::Argument => Self::ARGU_REGISTERS.to_vec(),
             RegisterType::Saved => Self::SAVED_REGISTERS.to_vec(),
             RegisterType::Temp => Self::TEMP_REGISTERS.to_vec(),
-            RegisterType::Local => Self::LOCAL_REGISTERS.to_vec(),
         }
     }
 }
@@ -105,8 +104,15 @@ macro_rules! as_ptr {
 #[derive(Debug, Default)]
 pub struct RegisterDispatcher {
     map: HashMap<Pointer, Location>,
-    frame_sizes: LinkedList<usize>,
+    frames: LinkedList<Frame>,
     used: HashSet<RiscVRegister>,
+}
+
+#[derive(Debug, Default)]
+pub struct Frame {
+    var_size: usize,
+    has_call: bool,
+    param_bias: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +128,15 @@ pub struct Stack {
 }
 
 impl RegisterDispatcher {
+    const STACK_IN: u8 = 0;
+    const STACK_OUT: u8 = 1;
+    const SAVE_RA: u8 = 2;
+    const RECOVER_RA: u8 = 3;
+
+    const MAX_PARAM_REG: usize = 8;
+    const INT_SIZE: usize = 4;
+
+    /// Ask for a register for the data.
     pub fn ask(&self, r_type: RegisterType) -> RiscVRegister {
         for reg in r_type.all() {
             if self.askfor(reg) {
@@ -131,159 +146,292 @@ impl RegisterDispatcher {
         todo!()
     }
 
+    /// Ask if the register is available.
     pub fn askfor(&self, register: RiscVRegister) -> bool {
         !self.used.contains(register)
     }
 
+    /// Occupy the register.
     pub fn occupy(&mut self, register: RiscVRegister) {
         self.used.insert(register);
     }
 
+    /// Release the register.
     pub fn release(&mut self, register: RiscVRegister) {
         self.used.remove(register);
     }
 
+    /// Ask, occupy and return the register.
     pub fn dispatch(&mut self, r_type: RegisterType) -> RiscVRegister {
         let reg = self.ask(r_type);
         self.occupy(reg);
         reg
     }
 
+    /// Get the location of the data.
     pub fn location(&self, ptr: &ValueData) -> Option<&Location> {
         self.map.get(&as_ptr!(ptr))
     }
 
-    fn frame_size_mut(&mut self) -> Result<&mut usize, AsmError> {
-        self.frame_sizes
-            .back_mut()
-            .ok_or(AsmError::InvalidStackFrame)
+    pub fn location_or_error(&self, ptr: &ValueData) -> Result<&Location, AsmError> {
+        self.location(ptr)
+            .ok_or(AsmError::NullLocation(ptr.name().clone()))
     }
 
-    fn frame_size(&self) -> Result<usize, AsmError> {
-        self.frame_sizes
-            .back()
-            .copied()
-            .ok_or(AsmError::InvalidStackFrame)
+    /// Get the current frame.
+    fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
+        self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
+    }
+
+    /// Get the current frame.
+    fn current_frame(&self) -> Result<&Frame, AsmError> {
+        self.frames.back().ok_or(AsmError::InvalidStackFrame)
     }
 
     /// Create a new pointer and allocate memory for it.
     pub fn new(&mut self, ptr: &ValueData) -> Result<(), AsmError> {
         // Always save the data in the stack.
         // TODO: Optimize the register usage.
-        self.malloc(ptr, 4)
+        self.malloc(ptr, Self::INT_SIZE)
     }
 
     /// Allocate register for the data.
     pub fn ralloc(&mut self, ptr: &ValueData) {
-        let reg = self.dispatch(RegisterType::Local);
+        let reg = self.dispatch(RegisterType::Temp);
         let address = Location::Register(reg);
         self.map.insert(as_ptr!(ptr), address);
     }
 
     /// Allocate memory for the data.
     pub fn malloc(&mut self, ptr: &ValueData, size: usize) -> Result<(), AsmError> {
-        let offset = self.frame_size()? as i32;
+        let frame = self.current_frame()?;
+        let offset = (frame.var_size + frame.param_bias) as i32;
         let address = Location::Stack(Stack { offset });
-        *self.frame_size_mut()? += size;
+        self.current_frame_mut()?.var_size += size;
 
         self.map.insert(as_ptr!(ptr), address);
         Ok(())
     }
 
+    /// Free the memory for the data.
     pub fn free(&mut self, ptr: &ValueData) {
         self.map.remove(&as_ptr!(ptr));
     }
 
-    pub fn new_frame(&mut self, asm: &mut AsmProgram) {
-        self.frame_sizes.push_back(0);
+    /// Start a new frame.
+    pub fn new_frame(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
+        asm.push(Inst::Comment("-- prologue".to_string()));
+        asm.push(Inst::Placeholder(Self::STACK_IN));
 
+        let mut frame = Frame::default();
+
+        // calculate the parameter bias
+        for (_, node) in func_data.layout().bbs() {
+            for inst in node.insts().keys() {
+                let data = func_data.dfg().value(*inst);
+                if let ValueKind::Call(call) = data.kind() {
+                    frame.has_call = true;
+                    let p_num = call.args().len();
+                    if p_num > Self::MAX_PARAM_REG {
+                        frame.param_bias = max(
+                            frame.param_bias,
+                            Self::INT_SIZE * (p_num - Self::MAX_PARAM_REG),
+                        );
+                    }
+                }
+            }
+        }
+        if frame.has_call {
+            asm.push(Inst::Placeholder(Self::SAVE_RA));
+        }
+
+        self.frames.push_back(frame);
         // add a placeholder here, waiting for update when the frame size is known.
-        asm.push(Inst::Placeholder);
     }
 
+    /// Mark an exit of the frame.
+    pub fn out_frame(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
+        // read all "call" instructions in the function
+        asm.push(Inst::Comment("-- epilogue".to_string()));
+        if self.current_frame()?.has_call {
+            asm.push(Inst::Placeholder(Self::RECOVER_RA));
+        }
+        asm.push(Inst::Placeholder(Self::STACK_OUT));
+        Ok(())
+    }
+
+    /// End the frame.
     pub fn end_frame(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
-        let size = self
-            .frame_sizes
-            .pop_back()
-            .ok_or(AsmError::InvalidStackFrame)?;
+        let frame = self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
+        let size = frame.var_size + (frame.has_call as usize * Self::INT_SIZE) + frame.param_bias;
+
         // align to 16
         let size = ((size + 15) & !15) as i32;
 
-        // get into stack
+        // recover the place holder
         let mut flag = false;
         for inst in asm.iter_mut().rev() {
-            if let Inst::Placeholder = inst {
-                flag = true;
-                if size == 0 {
-                    *inst = Inst::Nop;
-                    return Ok(());
-                } else {
-                    *inst = Inst::Addi(Addi(&SP, &SP, -size));
+            if let Inst::Placeholder(p) = inst {
+                match *p {
+                    Self::STACK_IN => {
+                        flag = true;
+                        if size == 0 {
+                            *inst = Inst::Nop;
+                            break;
+                        } else {
+                            *inst = Inst::Addi(Addi(&SP, &SP, -size));
+                        }
+                        break;
+                    }
+                    Self::STACK_OUT => {
+                        *inst = if size == 0 {
+                            Inst::Nop
+                        } else {
+                            Inst::Addi(Addi(&SP, &SP, size))
+                        }
+                    }
+                    Self::SAVE_RA => {
+                        *inst = Inst::Sw(Sw(&RA, &SP, size - Self::INT_SIZE as i32));
+                    }
+                    Self::RECOVER_RA => {
+                        *inst = Inst::Lw(Lw(&RA, &SP, size - Self::INT_SIZE as i32));
+                    }
+                    _ => unreachable!(),
                 }
-                break;
             }
         }
         if !flag {
             return Err(AsmError::InvalidStackFrame);
         }
-        // get out of stack
-        asm.push(Inst::Addi(Addi(&SP, &SP, size)));
         Ok(())
     }
 
     /// Save data in the register to the address of the dest.
-    pub fn save(
+    pub fn save_val_to(
         &mut self,
         dest: &ValueData,
-        register: RiscVRegister,
+        src: RiscVRegister,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        let address = self
-            .location(dest)
-            .ok_or(AsmError::RegisterNotAssigned(dest.name().clone()))?;
-
-        match address {
+        match self.location_or_error(dest)? {
             Location::Register(reg) => {
-                // move the data from the register to the register
-                if *reg == register {
+                if *reg == src {
                     return Ok(());
                 }
-                asm.push(Inst::Mv(Mv(register, *reg)));
+                asm.push(Inst::Mv(Mv(*reg, src)));
             }
             Location::Stack(stack) => {
                 // save the data in the register to the stack
                 let offset = stack.offset;
-                asm.push(Inst::Sw(Sw(register, &SP, offset)));
+                asm.push(Inst::Sw(Sw(src, &SP, offset)));
             }
         }
 
         // FIXME: decide whether to free the register here
-        self.release(register);
+        self.release(src);
         Ok(())
     }
 
-    /// load the data from the address of the src to the register.
-    pub fn load(&mut self, src: &ValueData, asm: &mut AsmProgram) -> Option<RiscVRegister> {
-        match self.map.get(&as_ptr!(src))? {
-            // cannot reach register here before we finish the optimization
-            Location::Register(register) => Some(*register),
-            Location::Stack(stack) => {
-                // load the data from the stack
-                let offset = stack.offset;
-                let reg = self.dispatch(RegisterType::Local);
-                asm.push(Inst::Lw(Lw(reg, &SP, offset)));
-                Some(reg)
-            }
-        }
+    pub fn load_imm_to(&mut self, imm: i32, dest: RiscVRegister, asm: &mut AsmProgram) {
+        asm.push(Inst::Li(Li(dest, imm)));
     }
 
-    /// load the data from the address of the src to the register.
-    pub fn load_or_error(
+    pub fn load_imm(&mut self, imm: i32, asm: &mut AsmProgram) -> Result<RiscVRegister, AsmError> {
+        if imm == 0 {
+            // simple optimization for zero
+            return Ok(ZERO);
+        }
+        let reg = self.dispatch(RegisterType::Temp);
+        self.load_imm_to(imm, reg, asm);
+        Ok(reg)
+    }
+
+    pub fn load_val_to(
+        &mut self,
+        src: &ValueData,
+        dest: RiscVRegister,
+        asm: &mut AsmProgram,
+    ) -> Result<(), AsmError> {
+        self.occupy(dest);
+        match self.location_or_error(src)? {
+            Location::Register(register) => {
+                if *register == dest {
+                    return Ok(());
+                }
+                asm.push(Inst::Mv(Mv(dest, *register)));
+            }
+            Location::Stack(stack) => {
+                let offset = stack.offset;
+                asm.push(Inst::Lw(Lw(dest, &SP, offset)));
+            }
+        }
+        Ok(())
+    }
+
+    /// Load the data from the address of the src to the register.
+    pub fn load_val(
         &mut self,
         src: &ValueData,
         asm: &mut AsmProgram,
     ) -> Result<RiscVRegister, AsmError> {
-        self.load(src, asm)
-            .ok_or(AsmError::RegisterNotAssigned(src.name().clone()))
+        match self.location_or_error(src)? {
+            // cannot reach register here before we finish the optimization
+            Location::Register(register) => Ok(*register),
+            Location::Stack(_) => {
+                // load the data from the stack
+                let reg = self.dispatch(RegisterType::Temp);
+                self.load_val_to(src, reg, asm)?;
+                Ok(reg)
+            }
+        }
+    }
+
+    fn param_location(index: usize) -> Location {
+        if index < Self::MAX_PARAM_REG {
+            Location::Register(RegisterType::ARGU_REGISTERS[index])
+        } else {
+            let offset = ((index - Self::MAX_PARAM_REG) * Self::INT_SIZE) as i32;
+            Location::Stack(Stack { offset })
+        }
+    }
+
+    pub fn load_func_params(
+        &mut self,
+        params: Vec<&ValueData>,
+        asm: &mut AsmProgram,
+    ) -> Result<(), AsmError> {
+        for (i, &param) in params.iter().enumerate() {
+            let location = match Self::param_location(i) {
+                Location::Register(reg) => Location::Register(reg),
+                Location::Stack(stack) => todo!(),
+            };
+            self.map.insert(as_ptr!(param), location);
+        }
+        Ok(())
+    }
+
+    pub fn save_func_params(
+        &mut self,
+        params: Vec<&ValueData>,
+        asm: &mut AsmProgram,
+    ) -> Result<(), AsmError> {
+        for (i, &param) in params.iter().enumerate() {
+            match Self::param_location(i) {
+                Location::Register(reg) => match param.kind() {
+                    ValueKind::Integer(int) => self.load_imm_to(int.value(), reg, asm),
+                    _ => self.load_val_to(param, reg, asm)?,
+                },
+                Location::Stack(stack) => {
+                    let temp = match param.kind() {
+                        ValueKind::Integer(int) => self.load_imm(int.value(), asm)?,
+                        _ => self.load_val(param, asm)?,
+                    };
+                    let offset = stack.offset;
+                    asm.push(Inst::Sw(Sw(temp, &SP, offset)));
+                    self.release(temp);
+                }
+            };
+        }
+        Ok(())
     }
 }

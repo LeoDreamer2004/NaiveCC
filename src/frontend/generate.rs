@@ -244,16 +244,9 @@ impl GenerateIr<()> for FuncDef {
         self.block.generate_on(context)?;
         context.syb_table.exit_scope();
 
-        // match self.func_type {
-            // FuncType::Void => {
-                let func_data = context.func_data();
-                let ret = new_value!(func_data).ret(None);
-                context.add_inst(ret);
-            // }
-            // FuncType::BType(_) => {
-                // context.pop_block();
-            // }
-        // };
+        let func_data = context.func_data();
+        let ret = new_value!(func_data).ret(None);
+        context.add_inst(ret);
         context.block = None;
         context.func = None;
         Ok(())

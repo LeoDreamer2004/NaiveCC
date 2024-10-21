@@ -57,7 +57,7 @@ fn _handin(args: CommandLineArgs) {
             Error::Asm(err) => match err {
                 AsmError::FunctionNotFound(_) => exit(81),
                 AsmError::InvalidStackFrame => exit(82),
-                AsmError::RegisterNotAssigned(_) => exit(83),
+                AsmError::NullLocation(_) => exit(83),
             },
             _ => exit(40),
         }
@@ -80,10 +80,9 @@ fn _main(args: CommandLineArgs) -> Result<(), Error> {
 
     let mut passman = PassManager::new();
     passman.register(Pass::Function(Box::new(DeadBlockCodeElimination::new())));
-    passman.register(Pass::Function(Box::new(DeadValueCodeElimination::new())));
+    // passman.register(Pass::Function(Box::new(DeadValueCodeElimination::new())));
     passman.run_passes(&mut program);
 
-    // println!("{:#?}", ast);
     match args.mode {
         Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,
         Mode::RiscV => {
