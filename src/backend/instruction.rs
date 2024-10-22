@@ -1,13 +1,14 @@
 use super::register::RiscVRegister;
 
 pub type AsmProgram = Vec<Inst>;
+pub type Label = String;
 
 #[derive(Debug)]
 pub enum Inst {
     Nop,
     Placeholder(u8),
     Comment(String),
-    Label(String),
+    Label(Label),
     Directive(Directive),
     Beqz(Beqz),
     Bnez(Bnez),
@@ -46,7 +47,7 @@ impl Inst {
             Inst::Nop => String::new(),
             Inst::Placeholder(_) => String::new(),
             Inst::Comment(comment) => format!("# {}", comment),
-            Inst::Label(label) => format!("\n{}:", label),
+            Inst::Label(label) => format!("{}:", label),
             Inst::Directive(directive) => format!("{}", directive.dump()),
             Inst::Beqz(beqz) => format!("beqz {}, {}", beqz.0, beqz.1),
             Inst::Bnez(bnez) => format!("bnez {}, {}", bnez.0, bnez.1),
@@ -86,17 +87,17 @@ pub enum Directive {
     Text,
     Data,
     Globl(String),
-    Asciz(String),
+    Zero(usize),
     Word(Immediate),
 }
 
 impl Directive {
     pub fn dump(&self) -> String {
         match self {
-            Directive::Text => String::from(".text"),
-            Directive::Data => String::from(".data"),
+            Directive::Text => String::from("\n.text"),
+            Directive::Data => String::from("\n.data"),
             Directive::Globl(label) => format!(".globl {}", label),
-            Directive::Asciz(string) => format!(".asciz \"{}\"", string),
+            Directive::Zero(size) => format!(".zero {}", size),
             Directive::Word(int) => format!(".word {}", int),
         }
     }
@@ -106,19 +107,19 @@ pub type Immediate = i32;
 
 /// **Beqz(rs, label)**: go to the label if rs is zero.
 #[derive(Debug, Default)]
-pub struct Beqz(pub RiscVRegister, pub String);
+pub struct Beqz(pub RiscVRegister, pub Label);
 
 /// **Bnez(rs, label)**: go to the label if rs is not zero.
 #[derive(Debug, Default)]
-pub struct Bnez(pub RiscVRegister, pub String);
+pub struct Bnez(pub RiscVRegister, pub Label);
 
 /// **J(label)**: jump to the label.
 #[derive(Debug, Default)]
-pub struct J(pub String);
+pub struct J(pub Label);
 
 /// **Call(label)**: call the function.
 #[derive(Debug, Default)]
-pub struct Call(pub String);
+pub struct Call(pub Label);
 
 /// **Ret**: return from the function.
 #[derive(Debug, Default)]
@@ -214,7 +215,7 @@ pub struct Li(pub RiscVRegister, pub Immediate);
 
 /// **La(rd, label)**: load the address of label to rd.
 #[derive(Debug, Default)]
-pub struct La(pub RiscVRegister, pub String);
+pub struct La(pub RiscVRegister, pub Label);
 
 /// **Mv(rd, rs)**: move the value of rs to rd.
 #[derive(Debug, Default)]

@@ -775,7 +775,7 @@ impl GenerateIr<Value> for LVal {
                     Ok(load)
                 }
                 Symbol::VarArray(_) => todo!(),
-                _ => unreachable!(),
+                _ => unreachable!("Unknown symbol type"),
             },
             None => Err(AstError::UndefinedVarError(self.ident.clone())),
         }
