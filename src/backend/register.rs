@@ -130,10 +130,12 @@ pub enum AsmElement {
 }
 
 impl AsmElement {
-    pub fn from(data: &ValueData) -> Self {
-        match data.kind() {
-            ValueKind::Integer(int) => AsmElement::Imm(int.value()),
-            _ => AsmElement::Local(data),
+    pub fn from(data: Pointer) -> Self {
+        unsafe {
+            match data.as_ref().unwrap().kind() {
+                ValueKind::Integer(int) => AsmElement::Imm(int.value()),
+                _ => AsmElement::Local(data),
+            }
         }
     }
 }
@@ -334,7 +336,7 @@ impl RegisterDispatcher {
                     }
                     Self::SAVE_S0 => {
                         *inst = Inst::Sw(Sw(S0, SP, size - 2 * INT_SIZE as i32));
-                    } 
+                    }
                     Self::RECOVER_S0 => {
                         *inst = Inst::Lw(Lw(S0, SP, size - 2 * INT_SIZE as i32));
                     }
@@ -473,7 +475,7 @@ impl RegisterDispatcher {
     pub fn load_func_param(
         &mut self,
         index: usize,
-        param: &ValueData,
+        param: Pointer,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         let location = match Self::param_location(index) {
@@ -493,7 +495,7 @@ impl RegisterDispatcher {
     pub fn save_func_param(
         &mut self,
         index: usize,
-        param: &ValueData,
+        param: Pointer,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         // TODO: Save local variables to the stack/callee-saved registers

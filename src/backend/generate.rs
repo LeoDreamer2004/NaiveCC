@@ -1,6 +1,6 @@
 use super::instruction::*;
 use super::register::{
-    self, AsmElement, RegisterDispatcher, RegisterType, RiscVRegister, INT_SIZE,
+    self, AsmElement, RegisterDispatcher, RegisterType, RiscVRegister, INT_SIZE, Pointer
 };
 use crate::common::NameGenerator;
 use koopa::ir::entities::ValueData;
@@ -40,19 +40,11 @@ impl<'a> Context<'a> {
         }
     }
 
-    pub fn global_data(&self, value: Value) -> ValueData {
-        self.program.borrow_value(value).clone()
-    }
-
-    pub fn local_data(&self, value: Value) -> &ValueData {
-        func_data!(self).dfg().value(value)
-    }
-
-    pub fn value_data(&self,  value: Value) -> ValueData {
-        if value.is_global() {
-            self.global_data(value)
+    pub fn to_ptr(&self, value: Value) -> Pointer {
+         if value.is_global() {
+            &*self.program.borrow_value(value)
         } else {
-            self.local_data(value).clone()
+            func_data!(self).dfg().value(value)
         }
     }
 
@@ -81,13 +73,13 @@ impl GenerateAsm<()> for Program {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
         for &g_value in self.inst_layout() {
             asm.push(Inst::Directive(Directive::Data));
-            let g_data = &context.global_data(g_value);
+            let g_data = self.borrow_value(g_value);
             let label = g_data.name().clone().unwrap()[1..].to_string();
             asm.push(Inst::Directive(Directive::Globl(label.clone())));
             asm.push(Inst::Label(label.clone()));
 
             if let ValueKind::GlobalAlloc(alloc) = g_data.kind() {
-                let data = &context.global_data(alloc.init());
+                let data = self.borrow_value(alloc.init());
                 match data.kind() {
                     ValueKind::ZeroInit(_) => {
                         asm.push(Inst::Directive(Directive::Zero(INT_SIZE)));
@@ -99,7 +91,7 @@ impl GenerateAsm<()> for Program {
                 }
             }
 
-            context.dispatcher.global_new(g_data, label);
+            context.dispatcher.global_new(&*g_data, label);
         }
 
         for &func in self.func_layout() {
@@ -124,7 +116,7 @@ impl GenerateAsm<()> for FunctionData {
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
-            let param = &context.value_data(p);
+            let param = context.to_ptr(p);
             context.dispatcher.load_func_param(index, param, asm)?;
         }
 
@@ -152,7 +144,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Store(store) => {
                 let rs = context.load_value_to_reg(store.value(), asm)?;
-                let dest = &context.value_data(store.dest());
+                let dest = context.to_ptr(store.dest());
                 context.dispatcher.save_val_to(dest, rs, asm)?;
             }
             ValueKind::Load(load) => {
@@ -231,7 +223,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Call(call) => {
                 for (index, &p) in call.args().iter().enumerate() {
-                    let param = &context.value_data(p);
+                    let param = context.to_ptr(p);
                     context.dispatcher.save_func_param(index, param, asm)?;
                 }
                 let func_data = context.program.func(call.callee());
@@ -256,7 +248,7 @@ trait IntoElement {
 
 impl IntoElement for Value {
     fn into_element(self, context: &Context) -> AsmElement {
-        let data = &context.value_data(self);
+        let data = context.to_ptr(self);
         AsmElement::from(data)
     }
 }
