@@ -130,7 +130,7 @@ impl GenerateAsm<()> for FunctionData {
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
-            let param = local_data!(context, p);
+            let param = value_data!(context, p);
             context.dispatcher.load_func_param(index, param, asm)?;
         }
 
@@ -158,7 +158,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Store(store) => {
                 let rs = context.load_value_to_reg(store.value(), asm)?;
-                let dest = local_data!(context, store.dest());
+                let dest = value_data!(context, store.dest());
                 context.dispatcher.save_val_to(dest, rs, asm)?;
             }
             ValueKind::Load(load) => {
@@ -237,7 +237,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Call(call) => {
                 for (index, &p) in call.args().iter().enumerate() {
-                    let param = local_data!(context, p);
+                    let param = value_data!(context, p);
                     context.dispatcher.save_func_param(index, param, asm)?;
                 }
                 let func_data = context.program.func(call.callee());
@@ -262,7 +262,7 @@ trait IntoElement {
 
 impl IntoElement for Value {
     fn into_element(self, context: &Context) -> AsmElement {
-        let data = local_data!(context, self);
+        let data = value_data!(context, self);
         AsmElement::from(data)
     }
 }
