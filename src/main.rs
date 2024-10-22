@@ -8,7 +8,7 @@ use backend::{emit_asm, AsmError};
 use frontend::{build_ir, emit_ir, AstError};
 use koopa::opt::{Pass, PassManager};
 use lalrpop_util::lalrpop_mod;
-use optimize::{DeadBlockCodeElimination, DeadValueCodeElimination};
+use optimize::DeadBlockCodeElimination;
 use std::env::args;
 use std::fs::{read_to_string, File};
 use std::io;
