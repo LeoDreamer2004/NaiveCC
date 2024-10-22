@@ -13,16 +13,6 @@ macro_rules! func_data {
     };
 }
 
-macro_rules! value_data {
-    ($context:expr, $value:expr) => {{
-        if $value.is_global() {
-            &*($context.program.borrow_value($value))
-        } else {
-            func_data!($context).dfg().value($value)
-        }
-    }};
-}
-
 macro_rules! original_ident {
     ($func_data:expr) => {
         $func_data.name()[1..].to_string()
@@ -50,6 +40,22 @@ impl<'a> Context<'a> {
         }
     }
 
+    pub fn global_data(&self, value: Value) -> ValueData {
+        self.program.borrow_value(value).clone()
+    }
+
+    pub fn local_data(&self, value: Value) -> &ValueData {
+        func_data!(self).dfg().value(value)
+    }
+
+    pub fn value_data(&self,  value: Value) -> ValueData {
+        if value.is_global() {
+            self.global_data(value)
+        } else {
+            self.local_data(value).clone()
+        }
+    }
+
     pub fn load_value_to_reg(
         &mut self,
         value: Value,
@@ -73,15 +79,15 @@ pub trait GenerateAsm<T> {
 
 impl GenerateAsm<()> for Program {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
-        for &g_values in self.inst_layout() {
+        for &g_value in self.inst_layout() {
             asm.push(Inst::Directive(Directive::Data));
-            let g_data = value_data!(context, g_values);
+            let g_data = &context.global_data(g_value);
             let label = g_data.name().clone().unwrap()[1..].to_string();
             asm.push(Inst::Directive(Directive::Globl(label.clone())));
             asm.push(Inst::Label(label.clone()));
 
             if let ValueKind::GlobalAlloc(alloc) = g_data.kind() {
-                let data = value_data!(context, alloc.init());
+                let data = &context.global_data(alloc.init());
                 match data.kind() {
                     ValueKind::ZeroInit(_) => {
                         asm.push(Inst::Directive(Directive::Zero(INT_SIZE)));
@@ -118,7 +124,7 @@ impl GenerateAsm<()> for FunctionData {
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
-            let param = value_data!(context, p);
+            let param = &context.value_data(p);
             context.dispatcher.load_func_param(index, param, asm)?;
         }
 
@@ -146,7 +152,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Store(store) => {
                 let rs = context.load_value_to_reg(store.value(), asm)?;
-                let dest = value_data!(context, store.dest());
+                let dest = &context.value_data(store.dest());
                 context.dispatcher.save_val_to(dest, rs, asm)?;
             }
             ValueKind::Load(load) => {
@@ -225,7 +231,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Call(call) => {
                 for (index, &p) in call.args().iter().enumerate() {
-                    let param = value_data!(context, p);
+                    let param = &context.value_data(p);
                     context.dispatcher.save_func_param(index, param, asm)?;
                 }
                 let func_data = context.program.func(call.callee());
@@ -250,7 +256,7 @@ trait IntoElement {
 
 impl IntoElement for Value {
     fn into_element(self, context: &Context) -> AsmElement {
-        let data = value_data!(context, self);
+        let data = &context.value_data(self);
         AsmElement::from(data)
     }
 }
