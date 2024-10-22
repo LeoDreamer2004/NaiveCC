@@ -13,15 +13,15 @@ macro_rules! func_data {
     };
 }
 
-// // macro_rules! value_data {
-//     ($context:expr, $value:expr) => {
-//         if $value.is_global() {
-//             global_data!($context, $value)
-//         } else {
-//             local_data!($context, $value)
-//         }
-//     };
-// }
+macro_rules! value_data {
+    ($context:expr, $value:expr) => {
+        if $value.is_global() {
+            global_data!($context, $value)
+        } else {
+            local_data!($context, $value)
+        }
+    };
+}
 
 macro_rules! local_data {
     ($context:expr, $value:expr) => {
@@ -29,11 +29,11 @@ macro_rules! local_data {
     };
 }
 
-// macro_rules! global_data {
-//     ($context:expr, $value:expr) => {
-//         &*($context.program.borrow_value($value))
-//     };
-// }
+macro_rules! global_data {
+    ($context:expr, $value:expr) => {
+        &*($context.program.borrow_value($value))
+    };
+}
 
 macro_rules! original_ident {
     ($func_data:expr) => {
