@@ -15,11 +15,11 @@ macro_rules! func_data {
 
 macro_rules! value_data {
     ($context:expr, $value:expr) => {
-        if $value.is_global() {
-            &*($context.program.borrow_value($value))
-        } else {
+        // if $value.is_global() {
+            // &*($context.program.borrow_value($value))
+        // } else {
             func_data!($context).dfg().value($value)
-        }
+        // }
     };
 }
 
