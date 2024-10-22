@@ -16,22 +16,10 @@ macro_rules! func_data {
 macro_rules! value_data {
     ($context:expr, $value:expr) => {
         if $value.is_global() {
-            global_data!($context, $value)
+            &*($context.program.borrow_value($value))
         } else {
-            local_data!($context, $value)
+            func_data!($context).dfg().value($value)
         }
-    };
-}
-
-macro_rules! local_data {
-    ($context:expr, $value:expr) => {
-        func_data!($context).dfg().value($value)
-    };
-}
-
-macro_rules! global_data {
-    ($context:expr, $value:expr) => {
-        &*($context.program.borrow_value($value))
     };
 }
 
@@ -87,13 +75,13 @@ impl GenerateAsm<()> for Program {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
         for &g_values in self.inst_layout() {
             asm.push(Inst::Directive(Directive::Data));
-            let g_data = global_data!(context, g_values);
+            let g_data = value_data!(context, g_values);
             let label = g_data.name().clone().unwrap()[1..].to_string();
             asm.push(Inst::Directive(Directive::Globl(label.clone())));
             asm.push(Inst::Label(label.clone()));
 
             if let ValueKind::GlobalAlloc(alloc) = g_data.kind() {
-                let data = global_data!(context, alloc.init());
+                let data = value_data!(context, alloc.init());
                 match data.kind() {
                     ValueKind::ZeroInit(_) => {
                         asm.push(Inst::Directive(Directive::Zero(INT_SIZE)));
