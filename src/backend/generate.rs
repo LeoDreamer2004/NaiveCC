@@ -13,15 +13,15 @@ macro_rules! func_data {
     };
 }
 
-macro_rules! value_data {
-    ($context:expr, $value:expr) => {
-        if $value.is_global() {
-            global_data!($context, $value)
-        } else {
-            local_data!($context, $value)
-        }
-    };
-}
+// // macro_rules! value_data {
+//     ($context:expr, $value:expr) => {
+//         if $value.is_global() {
+//             global_data!($context, $value)
+//         } else {
+//             local_data!($context, $value)
+//         }
+//     };
+// }
 
 macro_rules! local_data {
     ($context:expr, $value:expr) => {
@@ -29,11 +29,11 @@ macro_rules! local_data {
     };
 }
 
-macro_rules! global_data {
-    ($context:expr, $value:expr) => {
-        &*($context.program.borrow_value($value))
-    };
-}
+// macro_rules! global_data {
+//     ($context:expr, $value:expr) => {
+//         &*($context.program.borrow_value($value))
+//     };
+// }
 
 macro_rules! original_ident {
     ($func_data:expr) => {
@@ -130,7 +130,7 @@ impl GenerateAsm<()> for FunctionData {
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
-            let param = value_data!(context, p);
+            let param = local_data!(context, p);
             context.dispatcher.load_func_param(index, param, asm)?;
         }
 
@@ -158,7 +158,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Store(store) => {
                 let rs = context.load_value_to_reg(store.value(), asm)?;
-                let dest = value_data!(context, store.dest());
+                let dest = local_data!(context, store.dest());
                 context.dispatcher.save_val_to(dest, rs, asm)?;
             }
             ValueKind::Load(load) => {
@@ -237,7 +237,7 @@ impl GenerateAsm<()> for ValueData {
             }
             ValueKind::Call(call) => {
                 for (index, &p) in call.args().iter().enumerate() {
-                    let param = value_data!(context, p);
+                    let param = local_data!(context, p);
                     context.dispatcher.save_func_param(index, param, asm)?;
                 }
                 let func_data = context.program.func(call.callee());
@@ -262,7 +262,7 @@ trait IntoElement {
 
 impl IntoElement for Value {
     fn into_element(self, context: &Context) -> AsmElement {
-        let data = value_data!(context, self);
+        let data = local_data!(context, self);
         AsmElement::from(data)
     }
 }
