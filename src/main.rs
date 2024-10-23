@@ -80,7 +80,7 @@ fn _main(args: CommandLineArgs) -> Result<(), Error> {
     let mut program = build_ir(ast).map_err(Error::Ir)?;
 
     let mut passman = PassManager::new();
-    passman.register(Pass::Function(Box::new(DeadBlockCodeElimination::new())));
+    // passman.register(Pass::Function(Box::new(DeadBlockCodeElimination::new())));
     // passman.register(Pass::Function(Box::new(DeadValueCodeElimination::new())));
     passman.run_passes(&mut program);
 

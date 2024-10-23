@@ -211,7 +211,6 @@ impl GenerateAsm for ValueData {
             }
             ValueKind::Jump(jump) => {
                 let label = jump.target();
-                // context.dfg().bbs().get(&label).unwrap();
                 asm.push(Inst::J(J(context.label_gen.get_name(label))));
             }
             ValueKind::Branch(branch) => {

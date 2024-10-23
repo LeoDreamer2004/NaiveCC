@@ -12,7 +12,7 @@ pub struct NameGenerator<T> {
 
 impl<T> NameGenerator<T>
 where
-    T: Eq + Hash + Clone,
+    T: Eq + Hash,
 {
     pub fn new(f: NameMapper) -> Self {
         NameGenerator {
