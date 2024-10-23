@@ -14,7 +14,7 @@ pub type RiscVRegister = &'static Register;
 
 impl Default for RiscVRegister {
     fn default() -> Self {
-        &ZERO
+        ZERO
     }
 }
 
@@ -142,6 +142,7 @@ impl AsmElement {
 
 pub const MAX_PARAM_REG: usize = 8;
 pub const INT_SIZE: usize = 4;
+pub const MAX_STACK_SIZE: usize = 1 << 12;
 
 impl RegisterDispatcher {
     const SP_IN: u8 = 0;
@@ -223,10 +224,10 @@ impl RegisterDispatcher {
 
     /// Allocate memory for the data.
     pub fn malloc(&mut self, ptr: Pointer, size: usize) -> Result<(), AsmError> {
-        let frame = self.current_frame()?;
+        let frame = self.current_frame_mut()?;
         let offset = (frame.var_size + frame.param_bias) as i32;
         let address = Location::Stack(Stack { base: SP, offset });
-        self.current_frame_mut()?.var_size += size;
+        frame.var_size += size;
 
         self.map.insert(ptr, address);
         Ok(())
@@ -306,6 +307,9 @@ impl RegisterDispatcher {
 
         // align to 16
         let size = ((size + 15) & !15) as i32;
+        if size > MAX_STACK_SIZE as i32 {
+            return Err(AsmError::StackOverflow);
+        }
 
         // recover the place holder
         let mut flag = false;

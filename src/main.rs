@@ -58,6 +58,7 @@ fn _handin(args: CommandLineArgs) {
                 AsmError::FunctionNotFound(_) => exit(81),
                 AsmError::InvalidStackFrame => exit(82),
                 AsmError::NullLocation(_) => exit(83),
+                AsmError::StackOverflow => exit(84),
             },
             _ => exit(40),
         }

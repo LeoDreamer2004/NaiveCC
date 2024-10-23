@@ -64,12 +64,10 @@ impl DeadBlockCodeElimination {
     }
 
     fn sweep(&mut self, data: &mut FunctionData) -> bool {
-        let mut removed = Vec::new();
         let mut bb_cur = data.layout_mut().bbs_mut().cursor_front_mut();
         let mut result = false;
         while let Some(bb) = bb_cur.key() {
             if !self.liveset.contains(bb) {
-                removed.push(*bb);
                 bb_cur.remove_current();
                 result = true;
             } else {

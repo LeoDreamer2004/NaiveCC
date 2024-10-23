@@ -63,13 +63,14 @@ pub enum AsmError {
     NullLocation(Option<String>),
     FunctionNotFound(Function),
     InvalidStackFrame,
+    StackOverflow,
 }
 
-pub trait GenerateAsm<T> {
-    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<T, AsmError>;
+pub trait GenerateAsm {
+    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError>;
 }
 
-impl GenerateAsm<()> for Program {
+impl GenerateAsm for Program {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
         for &g_value in self.inst_layout() {
             asm.push(Inst::Directive(Directive::Data));
@@ -106,7 +107,7 @@ impl GenerateAsm<()> for Program {
     }
 }
 
-impl GenerateAsm<()> for FunctionData {
+impl GenerateAsm for FunctionData {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
         asm.push(Inst::Directive(Directive::Text));
         let label = original_ident!(self);
@@ -132,7 +133,7 @@ impl GenerateAsm<()> for FunctionData {
     }
 }
 
-impl GenerateAsm<()> for ValueData {
+impl GenerateAsm for ValueData {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
         match self.kind() {
             ValueKind::Integer(_) => {

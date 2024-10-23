@@ -502,9 +502,8 @@ impl GenerateIr<()> for VarDecl {
                 } else {
                     todo!()
                 };
-                context
-                    .program
-                    .set_value_name(alloc, Some(global_ident!(var_def)));
+                let name = global_ident!(var_def);
+                context.program.set_value_name(alloc, Some(name));
                 context
                     .syb_table
                     .add_var(var_def.to_symbol(context)?, alloc);
@@ -516,7 +515,7 @@ impl GenerateIr<()> for VarDecl {
                 let alloc = if is_single {
                     new_value!(func_data).alloc(self.b_type.into())
                 } else {
-                    todo!()
+                    new_value!(func_data).alloc(self.b_type.into())
                 };
                 set_value_name!(func_data, alloc, normal_ident!(var_def));
                 context.add_inst(alloc);
