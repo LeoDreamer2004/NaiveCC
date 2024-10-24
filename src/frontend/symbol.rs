@@ -110,8 +110,6 @@ pub trait Symbol {
     fn get_alloc(&self) -> Result<Value, AstError>;
     /// Returns the dimension bias of the symbol
     fn get_bias(&self) -> Result<&Vec<usize>, AstError>;
-    /// Converts the symbol to a symbol item
-    fn to_item(self) -> SymbolItem;
     /// Returns the size of the symbol
     ///
     /// # Error
@@ -222,10 +220,6 @@ impl Symbol for VarSymbol {
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Err(AstError::TypeError("Not an array".to_string()))
     }
-
-    fn to_item(self) -> SymbolItem {
-        SymbolItem::Var(self)
-    }
 }
 
 impl Symbol for ConstSymbol {
@@ -256,10 +250,6 @@ impl Symbol for ConstSymbol {
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Err(AstError::TypeError("Not an array".to_string()))
     }
-
-    fn to_item(self) -> SymbolItem {
-        SymbolItem::Const(self)
-    }
 }
 
 impl Symbol for VarArraySymbol {
@@ -288,10 +278,6 @@ impl Symbol for VarArraySymbol {
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Ok(&self.ptr_bias)
     }
-
-    fn to_item(self) -> SymbolItem {
-        SymbolItem::VarArray(self)
-    }
 }
 
 impl Symbol for ConstArraySymbol {
@@ -319,10 +305,6 @@ impl Symbol for ConstArraySymbol {
 
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Ok(&self.ptr_bias)
-    }
-
-    fn to_item(self) -> SymbolItem {
-        SymbolItem::ConstArray(self)
     }
 }
 

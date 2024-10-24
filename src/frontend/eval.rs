@@ -1,5 +1,5 @@
 use super::ast::*;
-use super::symbol::{ConstSymbol, Symbol, SymbolItem, SymbolTable};
+use super::symbol::{SymbolItem, SymbolTable};
 use super::AstError;
 
 pub trait Eval<T> {

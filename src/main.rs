@@ -51,7 +51,6 @@ fn _handin(args: CommandLineArgs) {
                 AstError::FunctionNotFoundError(_) => exit(72),
                 AstError::IllegalConstExpError(_) => exit(73),
                 AstError::SymbolNotFoundError(_) => exit(74),
-                AstError::SymbolNotFoundError(_) => exit(75),
                 AstError::UnknownError(_) => exit(76),
                 AstError::LoopStackError(_) => exit(77),
                 AstError::InitializeError(_) => exit(78),
