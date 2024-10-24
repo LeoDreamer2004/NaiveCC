@@ -1,34 +1,34 @@
 use super::ast::*;
-use super::generate::Context;
+use super::symbol::{ConstSymbol, Symbol, SymbolItem, SymbolTable};
 use super::AstError;
 
 pub trait Eval<T> {
-    fn eval(&self, context: &Context) -> Result<T, AstError>;
+    fn eval(&self, table: &SymbolTable) -> Result<T, AstError>;
 }
 
 impl Eval<i32> for Exp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            Exp::LOrExp(exp) => exp.eval(context),
+            Exp::LOrExp(exp) => exp.eval(table),
         }
     }
 }
 
 impl Eval<i32> for ConstExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            ConstExp::LOrExp(exp) => exp.eval(context),
+            ConstExp::LOrExp(exp) => exp.eval(table),
         }
     }
 }
 
 impl Eval<i32> for LOrExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            LOrExp::LAndExp(exp) => exp.eval(context),
+            LOrExp::LAndExp(exp) => exp.eval(table),
             LOrExp::LOrOpExp(op_exp) => {
-                let lhs = op_exp.l_or_exp.eval(context)?;
-                let rhs = op_exp.l_and_exp.eval(context)?;
+                let lhs = op_exp.l_or_exp.eval(table)?;
+                let rhs = op_exp.l_and_exp.eval(table)?;
                 Ok(if lhs != 0 || rhs != 0 { 1 } else { 0 })
             }
         }
@@ -36,12 +36,12 @@ impl Eval<i32> for LOrExp {
 }
 
 impl Eval<i32> for LAndExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            LAndExp::EqExp(exp) => exp.eval(context),
+            LAndExp::EqExp(exp) => exp.eval(table),
             LAndExp::LAndOpExp(op_exp) => {
-                let lhs = op_exp.l_and_exp.eval(context)?;
-                let rhs = op_exp.eq_exp.eval(context)?;
+                let lhs = op_exp.l_and_exp.eval(table)?;
+                let rhs = op_exp.eq_exp.eval(table)?;
                 Ok(if lhs != 0 && rhs != 0 { 1 } else { 0 })
             }
         }
@@ -49,12 +49,12 @@ impl Eval<i32> for LAndExp {
 }
 
 impl Eval<i32> for EqExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            EqExp::RelExp(exp) => exp.eval(context),
+            EqExp::RelExp(exp) => exp.eval(table),
             EqExp::EqOpExp(op_exp) => {
-                let lhs = op_exp.eq_exp.eval(context)?;
-                let rhs = op_exp.rel_exp.eval(context)?;
+                let lhs = op_exp.eq_exp.eval(table)?;
+                let rhs = op_exp.rel_exp.eval(table)?;
                 match op_exp.eq_op {
                     EqOp::Eq => Ok(if lhs == rhs { 1 } else { 0 }),
                     EqOp::Ne => Ok(if lhs != rhs { 1 } else { 0 }),
@@ -65,12 +65,12 @@ impl Eval<i32> for EqExp {
 }
 
 impl Eval<i32> for RelExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            RelExp::AddExp(exp) => exp.eval(context),
+            RelExp::AddExp(exp) => exp.eval(table),
             RelExp::RelOpExp(op_exp) => {
-                let lhs = op_exp.rel_exp.eval(context)?;
-                let rhs = op_exp.add_exp.eval(context)?;
+                let lhs = op_exp.rel_exp.eval(table)?;
+                let rhs = op_exp.add_exp.eval(table)?;
                 match op_exp.rel_op {
                     RelOp::Lt => Ok(if lhs < rhs { 1 } else { 0 }),
                     RelOp::Le => Ok(if lhs <= rhs { 1 } else { 0 }),
@@ -83,12 +83,12 @@ impl Eval<i32> for RelExp {
 }
 
 impl Eval<i32> for AddExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            AddExp::MulExp(exp) => exp.eval(context),
+            AddExp::MulExp(exp) => exp.eval(table),
             AddExp::AddOpExp(op_exp) => {
-                let lhs = op_exp.add_exp.eval(context)?;
-                let rhs = op_exp.mul_exp.eval(context)?;
+                let lhs = op_exp.add_exp.eval(table)?;
+                let rhs = op_exp.mul_exp.eval(table)?;
                 match op_exp.add_op {
                     AddOp::Add => Ok(lhs + rhs),
                     AddOp::Sub => Ok(lhs - rhs),
@@ -99,12 +99,12 @@ impl Eval<i32> for AddExp {
 }
 
 impl Eval<i32> for MulExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            MulExp::UnaryExp(exp) => exp.eval(context),
+            MulExp::UnaryExp(exp) => exp.eval(table),
             MulExp::MulOpExp(op_exp) => {
-                let lhs = op_exp.mul_exp.eval(context)?;
-                let rhs = op_exp.unary_exp.eval(context)?;
+                let lhs = op_exp.mul_exp.eval(table)?;
+                let rhs = op_exp.unary_exp.eval(table)?;
                 match op_exp.mul_op {
                     MulOp::Mul => Ok(lhs * rhs),
                     MulOp::Div => Ok(lhs / rhs),
@@ -116,14 +116,14 @@ impl Eval<i32> for MulExp {
 }
 
 impl Eval<i32> for UnaryExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            UnaryExp::PrimaryExp(exp) => exp.eval(context),
+            UnaryExp::PrimaryExp(exp) => exp.eval(table),
             UnaryExp::FuncCall(_) => Err(AstError::IllegalConstExpError(String::from(
                 "Function Call",
             ))),
             UnaryExp::UnaryOpExp(op_exp) => {
-                let exp = op_exp.unary_exp.eval(context)?;
+                let exp = op_exp.unary_exp.eval(table)?;
                 match op_exp.unary_op {
                     UnaryOp::Pos => Ok(exp),
                     UnaryOp::Neg => Ok(-exp),
@@ -135,14 +135,17 @@ impl Eval<i32> for UnaryExp {
 }
 
 impl Eval<i32> for PrimaryExp {
-    fn eval(&self, context: &Context) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
         match self {
-            PrimaryExp::Exp(exp) => exp.eval(context),
-            PrimaryExp::LVal(l_val) => {
+            PrimaryExp::Exp(exp) => exp.eval(table),
+            PrimaryExp::LValExp(l_val) => {
                 let ident = l_val.ident.clone();
-                match context.syb_table.lookup_const(&ident) {
-                    Some(symbol) => Ok(symbol.value),
-                    None => Err(AstError::UndefinedConstError(ident)),
+                let item = table
+                    .lookup_item(&ident)
+                    .ok_or(AstError::SymbolNotFoundError(ident.clone()))?;
+                match item {
+                    SymbolItem::Const(symbol) => Ok(symbol.value),
+                    _ => Err(AstError::IllegalConstExpError(ident.clone())),
                 }
             }
             PrimaryExp::Number(num) => match num {
@@ -150,12 +153,4 @@ impl Eval<i32> for PrimaryExp {
             },
         }
     }
-}
-
-pub fn eval_array_size(array_index: &Vec<ConstExp>, context: &Context) -> Result<i32, AstError> {
-    let mut length = 1;
-    for exp in array_index {
-        length *= exp.eval(context)?;
-    }
-    Ok(length)
 }

@@ -2,7 +2,7 @@ use super::instruction::*;
 use super::register::{
     self, AsmElement, RegisterDispatcher, RegisterType, RiscVRegister, INT_SIZE, Pointer
 };
-use crate::common::NameGenerator;
+use crate::utils::namer::NameGenerator;
 use koopa::ir::entities::ValueData;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value, ValueKind};
 use std::io::Write;

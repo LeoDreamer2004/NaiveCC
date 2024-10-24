@@ -1,11 +1,8 @@
 int main() {
-  int a = 1, b = 0;
-  if (a || b) {
-    b = 1;
-    a = 0;
+  int arr[10] = {1, 2, 3, 4, 5};
+  int i = 0;
+  while (i < 10) {
+    return arr[i];
   }
-  if (a && b) {
-    return 0;
-  }
-  return 77;
+  return arr[9];
 }

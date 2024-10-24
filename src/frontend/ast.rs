@@ -117,6 +117,12 @@ pub struct Assign {
 }
 
 #[derive(Debug, Clone)]
+pub struct LVal {
+    pub ident: String,
+    pub array_index: Vec<Exp>,
+}
+
+#[derive(Debug, Clone)]
 pub struct If {
     pub cond: Cond,
     pub stmt: Stmt,
@@ -151,7 +157,7 @@ pub enum Cond {
 }
 
 #[derive(Debug, Clone)]
-pub struct LVal {
+pub struct LValExp {
     pub ident: String,
     pub array_index: Vec<Exp>,
 }
@@ -159,7 +165,7 @@ pub struct LVal {
 #[derive(Debug, Clone)]
 pub enum PrimaryExp {
     Exp(Box<Exp>),
-    LVal(Box<LVal>),
+    LValExp(Box<LValExp>),
     Number(Number),
 }
 

@@ -15,7 +15,7 @@ use std::io;
 use std::process::exit;
 
 mod backend;
-mod common;
+mod utils;
 mod frontend;
 mod optimize;
 
@@ -46,13 +46,16 @@ fn _handin(args: CommandLineArgs) {
         match e {
             Error::Parse => exit(60),
             Error::Ir(err) => match err {
+                AstError::TypeError(_) => exit(70),
                 AstError::AssignError(_) => exit(71),
                 AstError::FunctionNotFoundError(_) => exit(72),
                 AstError::IllegalConstExpError(_) => exit(73),
-                AstError::UndefinedConstError(_) => exit(74),
-                AstError::UndefinedVarError(_) => exit(75),
+                AstError::SymbolNotFoundError(_) => exit(74),
+                AstError::SymbolNotFoundError(_) => exit(75),
                 AstError::UnknownError(_) => exit(76),
                 AstError::LoopStackError(_) => exit(77),
+                AstError::InitializeError(_) => exit(78),
+                AstError::IllegalAccessError(_) => exit(79),
             },
             Error::Asm(err) => match err {
                 AsmError::FunctionNotFound(_) => exit(81),
@@ -80,7 +83,7 @@ fn _main(args: CommandLineArgs) -> Result<(), Error> {
     let mut program = build_ir(ast).map_err(Error::Ir)?;
 
     let mut passman = PassManager::new();
-    // passman.register(Pass::Function(Box::new(DeadBlockCodeElimination::new())));
+    passman.register(Pass::Function(Box::new(DeadBlockCodeElimination::new())));
     // passman.register(Pass::Function(Box::new(DeadValueCodeElimination::new())));
     passman.run_passes(&mut program);
 

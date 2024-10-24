@@ -149,6 +149,10 @@ __IfOpenStmt: Stmt = {
     "if" "(" <cond: Cond> ")" <stmt: __IfMatchStmt> "else" <else_stmt: __IfOpenStmt> => Stmt::If(Box::new(If { cond, stmt, else_stmt: Some(else_stmt) })),
 }
 
+LVal: LVal = {
+    <ident: Ident> <array_index: Index<Exp>> => LVal { <> }
+}
+
 Exp: Exp = {
     <LOrExp> => Exp::LOrExp(<>),
 }
@@ -157,8 +161,8 @@ ConstExp: ConstExp = {
     <LOrExp> => ConstExp::LOrExp(<>)
 }
 
-LVal: LVal = {
-    <ident: Ident> <array_index: Index<Exp>> => LVal { <> }
+LValExp: LValExp = {
+    <ident: Ident> <array_index: Index<Exp>> => LValExp { <> }
 }
 
 AddExp: AddExp = {
@@ -200,7 +204,7 @@ FuncCall: FuncCall = {
 
 PrimaryExp: PrimaryExp = {
     "(" <Exp> ")" => PrimaryExp::Exp(Box::new(<>)),
-    <LVal> => PrimaryExp::LVal(Box::new(<>)),
+    <LValExp> => PrimaryExp::LValExp(Box::new(<>)),
     <Number> => PrimaryExp::Number(<>)
 }
 
