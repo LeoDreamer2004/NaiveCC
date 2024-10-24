@@ -4,7 +4,6 @@ use super::ast::*;
 use super::builtin::builtin_functions;
 use super::eval::Eval;
 use super::loops::*;
-use super::symbol;
 use super::symbol::*;
 use koopa::back::KoopaGenerator;
 use koopa::ir::builder::LocalBuilder;
@@ -12,7 +11,6 @@ use koopa::ir::builder_traits::*;
 use koopa::ir::Type;
 use koopa::ir::ValueKind;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value};
-use std::env::var;
 use std::io;
 
 pub fn build_ir(ast: CompUnit) -> Result<Program, AstError> {

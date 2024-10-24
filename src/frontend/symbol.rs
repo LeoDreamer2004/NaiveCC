@@ -2,7 +2,6 @@ use super::ast::{ConstDef, ConstExp, ConstInitVal, Exp, FuncFParam, InitVal, Var
 use super::eval::Eval;
 use super::generate::Context;
 use super::AstError;
-use core::any::Any;
 use koopa::ir::builder::{LocalInstBuilder, ValueBuilder};
 use koopa::ir::{BinaryOp, Value};
 
@@ -76,11 +75,6 @@ impl SymbolTable {
         self.lookup_item(ident)?.symbol()
     }
 
-    pub fn lookup_spec<T: Symbol + 'static>(&self, ident: &String) -> Option<&T> {
-        let symbol = self.lookup(ident)?;
-        symbol.as_any().downcast_ref::<T>()
-    }
-
     pub fn enter_scope(&mut self) {
         self.items.push(SymbolItem::ScopeSeparator);
     }
@@ -98,7 +92,6 @@ impl SymbolTable {
 /****************** Symbol Definitions *******************/
 
 pub trait Symbol {
-    fn as_any(&self) -> &dyn Any;
     /// Returns the identifier of the symbol
     fn ident(&self) -> &String;
     /// Returns true if the symbol is a single variable
@@ -204,10 +197,6 @@ pub struct ParamArraySymbol {
 /****************** Symbol Traits & Implementations *******************/
 
 impl Symbol for VarSymbol {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn ident(&self) -> &String {
         &self.ident
     }
@@ -240,10 +229,6 @@ impl Symbol for VarSymbol {
 }
 
 impl Symbol for ConstSymbol {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn ident(&self) -> &String {
         &self.ident
     }
@@ -278,10 +263,6 @@ impl Symbol for ConstSymbol {
 }
 
 impl Symbol for VarArraySymbol {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn ident(&self) -> &String {
         &self.ident
     }
@@ -314,10 +295,6 @@ impl Symbol for VarArraySymbol {
 }
 
 impl Symbol for ConstArraySymbol {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn ident(&self) -> &String {
         &self.ident
     }
