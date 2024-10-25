@@ -1,9 +1,9 @@
 use super::ast::{ConstDef, ConstExp, ConstInitVal, Exp, FuncFParam, InitVal, VarDef};
 use super::eval::Eval;
-use super::generate::Context;
+use super::generate::{Context, GenerateIr};
 use super::AstError;
-use koopa::ir::builder::{LocalInstBuilder, ValueBuilder};
-use koopa::ir::{BinaryOp, Value};
+use koopa::ir::builder::{GlobalInstBuilder, LocalInstBuilder, ValueBuilder};
+use koopa::ir::{Type, Value};
 
 /// Symbol Table
 /// Implemented as a stack of scopes
@@ -21,58 +21,39 @@ pub enum SymbolItem {
     ScopeSeparator,
 }
 
-impl SymbolItem {
-    fn symbol(&self) -> Option<&dyn Symbol> {
-        match self {
-            SymbolItem::Var(symbol) => Some(symbol),
-            SymbolItem::VarArray(symbol) => Some(symbol),
-            SymbolItem::Const(symbol) => Some(symbol),
-            SymbolItem::ConstArray(symbol) => Some(symbol),
-            SymbolItem::ScopeSeparator => None,
-        }
-    }
-
-    fn symbol_mut(&mut self) -> Option<&mut dyn Symbol> {
-        match self {
-            SymbolItem::Var(symbol) => Some(symbol),
-            SymbolItem::VarArray(symbol) => Some(symbol),
-            SymbolItem::Const(symbol) => Some(symbol),
-            SymbolItem::ConstArray(symbol) => Some(symbol),
-            SymbolItem::ScopeSeparator => None,
-        }
-    }
-}
-
 impl SymbolTable {
-    pub fn new_symbol(&mut self, symbol: &impl SymbolLike) -> Result<(), AstError> {
+    pub fn new_symbol(&mut self, symbol: &impl SymbolLike) -> Result<&SymbolItem, AstError> {
         self.items.push(symbol.wrap(self)?);
-        Ok(())
+        Ok(self.items.last_mut().unwrap())
     }
 
     pub fn set_alloc(&mut self, ident: &String, alloc: Value) -> Result<(), AstError> {
-        self.items
-            .last_mut()
-            .unwrap()
-            .symbol_mut()
-            .ok_or(AstError::SymbolNotFoundError(ident.clone()))?
-            .set_alloc(alloc)
+        match self.items.last_mut().unwrap() {
+            SymbolItem::Var(symbol) => symbol.set_alloc(alloc),
+            SymbolItem::VarArray(symbol) => symbol.set_alloc(alloc),
+            SymbolItem::Const(symbol) => symbol.set_alloc(alloc),
+            SymbolItem::ConstArray(symbol) => symbol.set_alloc(alloc),
+            SymbolItem::ScopeSeparator => Err(AstError::UnknownError(
+                "Trying to allocate scope separator".to_string(),
+            )),
+        }
     }
 
     pub fn lookup_item(&self, ident: &String) -> Option<&SymbolItem> {
         // Search from the top of the stack
         for item in self.items.iter().rev() {
-            let symbol = item.symbol();
-            if let Some(symbol) = symbol {
-                if ident == symbol.ident() {
-                    return Some(item);
-                }
+            let d = match item {
+                SymbolItem::Var(symbol) => symbol.ident().clone(),
+                SymbolItem::VarArray(symbol) => symbol.ident().clone(),
+                SymbolItem::Const(symbol) => symbol.ident().clone(),
+                SymbolItem::ConstArray(symbol) => symbol.ident().clone(),
+                SymbolItem::ScopeSeparator => String::new(),
+            };
+            if ident.clone() == d {
+                return Some(item);
             }
         }
         None
-    }
-
-    pub fn lookup(&self, ident: &String) -> Option<&dyn Symbol> {
-        self.lookup_item(ident)?.symbol()
     }
 
     pub fn enter_scope(&mut self) {
@@ -91,7 +72,7 @@ impl SymbolTable {
 
 /****************** Symbol Definitions *******************/
 
-pub trait Symbol {
+pub trait Symbol: Clone {
     /// Returns the identifier of the symbol
     fn ident(&self) -> &String;
     /// Returns true if the symbol is a single variable
@@ -119,7 +100,7 @@ pub trait Symbol {
         if self.is_single() {
             Err(AstError::TypeError("Not an array".to_string()))
         } else {
-            self.get_bias().map(|bias| bias[0])
+            Ok(self.get_bias()?[0])
         }
     }
     /// Returns the index of the symbol
@@ -132,28 +113,25 @@ pub trait Symbol {
             return Err(AstError::TypeError("Not an array".to_string()));
         }
         let bias = self.get_bias()?;
-        if indexes.len() != bias.len() - 1 {
+        if indexes.len() > bias.len() - 1 {
             return Err(AstError::IllegalAccessError(
                 "Array dimensions mismatch".to_string(),
             ));
         }
-
-        // indexes[0] * bias[1] + indexes[1] * bias[2] + ... + indexes[n-1] * bias[n]
-        // simple optimization: bias[n] always equals to 1
-        let len = indexes.len();
-        let mut res = indexes[len - 1];
-        for (i, &value) in indexes.iter().enumerate() {
-            if i == len - 1 {
-                break;
-            }
-            let b = context.new_value().integer(bias[i + 1] as i32);
-            let mul = context.new_value().binary(BinaryOp::Mul, value, b);
-            context.add_inst(mul);
-            res = context.new_value().binary(BinaryOp::Add, res, mul);
-            context.add_inst(res);
+        let mut ptr = self.get_alloc()?;
+        for &index in indexes {
+            ptr = context.new_value().get_elem_ptr(ptr, index);
+            context.add_inst(ptr);
         }
-        Ok(res)
+        Ok(ptr)
     }
+
+    fn gen_value(
+        &self,
+        ty: Type,
+        init: &Option<Init>,
+        context: &mut Context,
+    ) -> Result<(), AstError>;
 }
 
 #[derive(Debug, Clone)]
@@ -220,6 +198,26 @@ impl Symbol for VarSymbol {
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Err(AstError::TypeError("Not an array".to_string()))
     }
+
+    fn gen_value(
+        &self,
+        ty: Type,
+        init: &Option<Init>,
+        context: &mut Context,
+    ) -> Result<(), AstError> {
+        let init = match init {
+            Some(Init::Var(symbol)) => symbol.as_element()?.generate_on(context)?,
+            None => context.zero_init(ty.clone()),
+            _ => unreachable!(),
+        };
+        let alloc = if context.is_global() {
+            context.glb_new_value().global_alloc(init)
+        } else {
+            context.alloc_and_store(init, ty.clone())
+        };
+        context.syb_table.set_alloc(self.ident(), alloc)?;
+        Ok(())
+    }
 }
 
 impl Symbol for ConstSymbol {
@@ -250,6 +248,10 @@ impl Symbol for ConstSymbol {
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Err(AstError::TypeError("Not an array".to_string()))
     }
+
+    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Context) -> Result<(), AstError> {
+        Ok(())
+    }
 }
 
 impl Symbol for VarArraySymbol {
@@ -277,6 +279,44 @@ impl Symbol for VarArraySymbol {
 
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Ok(&self.ptr_bias)
+    }
+
+    fn gen_value(
+        &self,
+        ty: Type,
+        init: &Option<Init>,
+        context: &mut Context,
+    ) -> Result<(), AstError> {
+        let bias = self.get_bias()?;
+        let arr_ty = gen_array_type(&ty, bias);
+        let alloc = if context.is_global() {
+            match init {
+                Some(Init::Var(init)) => {
+                    let init = init
+                        .parse(self.get_bias()?)?
+                        .map(|exp| exp.eval(&context.syb_table).unwrap());
+                    fill_global(init, bias, context)
+                }
+                None => {
+                    let value = context.glb_new_value().zero_init(arr_ty);
+                    context.glb_new_value().global_alloc(value)
+                }
+                _ => unreachable!(),
+            }
+        } else {
+            match init {
+                Some(Init::Var(init)) => {
+                    let init = init
+                        .parse(self.get_bias()?)?
+                        .map(|exp| exp.generate_on(context).unwrap());
+                    fill_local(init, self.get_bias()?, context)
+                }
+                None => context.new_value().alloc(arr_ty),
+                _ => unreachable!(),
+            }
+        };
+        context.syb_table.set_alloc(self.ident(), alloc)?;
+        Ok(())
     }
 }
 
@@ -306,6 +346,76 @@ impl Symbol for ConstArraySymbol {
     fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
         Ok(&self.ptr_bias)
     }
+
+    fn gen_value(
+        &self,
+        ty: Type,
+        init: &Option<Init>,
+        context: &mut Context,
+    ) -> Result<(), AstError> {
+        let init = match init {
+            Some(Init::Const(symbol)) => symbol
+                .parse(self.get_bias()?)?
+                .map(|exp| exp.eval(&context.syb_table).unwrap()),
+            _ => unreachable!(),
+        };
+
+        let alloc = if context.is_global() {
+            fill_global(init, self.get_bias()?, context)
+        } else {
+            let init = init.map(|&int| context.new_value().integer(int));
+            fill_local(init, self.get_bias()?, context)
+        };
+        context.syb_table.set_alloc(self.ident(), alloc)?;
+        Ok(())
+    }
+}
+
+fn gen_array_type(ty: &Type, bias: &Vec<usize>) -> Type {
+    let mut ty = ty.clone();
+    for i in (0..bias.len() - 1).rev() {
+        let dim = bias[i] / bias[i + 1];
+        ty = Type::get_array(ty, dim);
+    }
+    ty
+}
+
+fn fill_global(init: ArrayParseResult<i32>, bias: &Vec<usize>, context: &mut Context) -> Value {
+    let ints = init.unfold(0);
+    let mut values: Vec<Value> = ints.iter().map(|&x| context.integer(x)).collect();
+    for i in (0..bias.len() - 1).rev() {
+        let step = bias[i] / bias[i + 1];
+        let num = bias[0] / bias[i];
+        let mut temp = vec![];
+        for j in 0..num {
+            let aggr = values[j * step..(j + 1) * step].to_vec();
+            temp.push(context.aggregate(aggr));
+        }
+        values = temp;
+    }
+    // At last, there will be only one value in the values
+    context.glb_new_value().global_alloc(values[0])
+}
+
+fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, context: &mut Context) -> Value {
+    let arr_ty = gen_array_type(&Type::get_i32(), bias);
+    let alloc = context.new_value().alloc(arr_ty);
+    context.add_inst(alloc);
+    for (value, idx) in init.filter() {
+        let mut c_idx = idx;
+        let index = context.new_value().integer((c_idx / bias[1]) as i32);
+        let mut ptr = context.new_value().get_elem_ptr(alloc, index);
+        context.add_inst(ptr);
+        for i in 2..bias.len() {
+            c_idx %= bias[i - 1];
+            let index = context.new_value().integer((c_idx / bias[i]) as i32);
+            ptr = context.new_value().get_elem_ptr(ptr, index);
+            context.add_inst(ptr);
+        }
+        let store = context.new_value().store(value, ptr);
+        context.add_inst(store);
+    }
+    alloc
 }
 
 pub trait SymbolLike {
@@ -391,21 +501,32 @@ impl SymbolLike for FuncFParam {
 }
 
 #[derive(Debug)]
-pub struct ArrayParseResult<'a, E> {
-    elements: Vec<ArrayElements<&'a E>>,
+pub struct ArrayParseResult<E> {
+    elements: Vec<ArrayElements<E>>,
 }
 
-impl<'a, E> ArrayParseResult<'a, E> {
+impl<E> ArrayParseResult<E> {
+    pub fn map<T>(self, mut map: impl FnMut(&E) -> T) -> ArrayParseResult<T> {
+        let elements = self
+            .elements
+            .iter()
+            .map(|e| match e {
+                ArrayElements::Word(e) => ArrayElements::Word(map(e)),
+                ArrayElements::Zero(size) => ArrayElements::Zero(*size),
+            })
+            .collect();
+        ArrayParseResult { elements }
+    }
+
     /// Unfold the array elements
-    pub fn unfold<F, T>(&self, map: F, zero: T) -> Vec<T>
+    pub fn unfold(self, zero: E) -> Vec<E>
     where
-        F: Fn(&E) -> T,
-        T: Clone + Sized,
+        E: Clone + Sized,
     {
         let mut res = vec![];
         for element in self.elements.clone() {
             match element {
-                ArrayElements::Word(e) => res.push(map(e)),
+                ArrayElements::Word(e) => res.push(e),
                 ArrayElements::Zero(size) => res.extend(vec![zero.clone(); size]),
             }
         }
@@ -413,10 +534,10 @@ impl<'a, E> ArrayParseResult<'a, E> {
     }
 
     /// Filter the zero array elements, return with the elements and its index in the array
-    pub fn filter(&self) -> Vec<(&E, usize)> {
+    pub fn filter(self) -> Vec<(E, usize)> {
         let mut cursor = 0;
         let mut res = vec![];
-        for element in self.elements.clone() {
+        for element in self.elements {
             match element {
                 ArrayElements::Word(e) => {
                     res.push((e, cursor));
@@ -438,12 +559,17 @@ enum ArrayElements<E> {
     Zero(usize),
 }
 
-pub enum ArrayType<'a, A: ArrayInitilizer> {
+pub enum ArrayType<'a, A: Initilizer> {
     Element(&'a A::E),
     Array(&'a Box<Vec<A>>),
 }
 
-pub trait ArrayInitilizer
+pub enum Init {
+    Const(ConstInitVal),
+    Var(InitVal),
+}
+
+pub trait Initilizer
 where
     Self: Sized,
 {
@@ -457,7 +583,7 @@ where
             _ => Err(AstError::TypeError("Not an element".to_string())),
         }
     }
-    fn parse(&self, bias_stack: &Vec<usize>) -> Result<ArrayParseResult<Self::E>, AstError> {
+    fn parse(&self, bias_stack: &Vec<usize>) -> Result<ArrayParseResult<&Self::E>, AstError> {
         if bias_stack.is_empty() {
             return Err(AstError::InitializeError(
                 "Array dimensions mismatch".to_string(),
@@ -507,7 +633,7 @@ where
     }
 }
 
-impl ArrayInitilizer for ConstInitVal {
+impl Initilizer for ConstInitVal {
     type E = ConstExp;
     fn as_type(&self) -> ArrayType<Self> {
         match self {
@@ -517,7 +643,7 @@ impl ArrayInitilizer for ConstInitVal {
     }
 }
 
-impl ArrayInitilizer for InitVal {
+impl Initilizer for InitVal {
     type E = Exp;
     fn as_type(&self) -> ArrayType<Self> {
         match self {

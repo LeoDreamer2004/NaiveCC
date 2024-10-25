@@ -6,7 +6,7 @@ use super::eval::Eval;
 use super::loops::*;
 use super::symbol::*;
 use koopa::back::KoopaGenerator;
-use koopa::ir::builder::LocalBuilder;
+use koopa::ir::builder::{GlobalBuilder, LocalBuilder};
 use koopa::ir::builder_traits::*;
 use koopa::ir::Type;
 use koopa::ir::ValueKind;
@@ -52,7 +52,7 @@ pub enum AstError {
 /// Trait which should be implemented by AST types to generate IR
 ///
 /// Return a value of type `T` if needed
-trait GenerateIr<T> {
+pub trait GenerateIr<T> {
     /// Generate IR on the given context
     ///
     /// # Errors
@@ -137,6 +137,34 @@ impl Context {
         self.func_data().dfg_mut().new_value()
     }
 
+    pub fn glb_new_value(&mut self) -> GlobalBuilder {
+        self.program.new_value()
+    }
+
+    pub fn integer(&mut self, value: i32) -> Value {
+        if self.is_global() {
+            self.glb_new_value().integer(value)
+        } else {
+            self.new_value().integer(value)
+        }
+    }
+
+    pub fn aggregate(&mut self, values: Vec<Value>) -> Value {
+        if self.is_global() {
+            self.glb_new_value().aggregate(values)
+        } else {
+            self.new_value().aggregate(values)
+        }
+    }
+
+    pub fn zero_init(&mut self, ty: Type) -> Value {
+        if self.is_global() {
+            self.glb_new_value().zero_init(ty)
+        } else {
+            self.new_value().zero_init(ty)
+        }
+    }
+
     pub fn is_global(&self) -> bool {
         self.func.is_none()
     }
@@ -186,9 +214,9 @@ impl Context {
         self.block.unwrap()
     }
 
-    pub fn alloc_and_store(&mut self, value: Value, b_type: Type) -> Value {
-        let alloc = new_value!(self.func_data()).alloc(b_type);
-        let store = new_value!(self.func_data()).store(value, alloc);
+    pub fn alloc_and_store(&mut self, value: Value, ty: Type) -> Value {
+        let alloc = self.new_value().alloc(ty);
+        let store = self.new_value().store(value, alloc);
         self.add_inst(alloc);
         self.add_inst(store);
         alloc
@@ -464,40 +492,20 @@ impl GenerateIr<()> for Continue {
 impl GenerateIr<()> for ConstDecl {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
         for const_def in self.const_defs.clone() {
-            context.syb_table.new_symbol(&const_def)?;
-            let symbol = context.syb_table.lookup(&const_def.ident).unwrap();
-            if symbol.is_single() {
-                continue;
-            }
-            let size = symbol.size()?;
-            let parse = const_def.const_init_val.parse(symbol.get_bias()?)?;
-
-            if context.is_global() {
-                let map = |exp: &ConstExp| exp.eval(&context.syb_table).unwrap();
-                let values = parse
-                    .unfold(map, 0)
-                    .iter()
-                    .map(|int| context.program.new_value().integer(*int))
-                    .collect();
-                let aggr = context.program.new_value().aggregate(values);
-                context.program.new_value().global_alloc(aggr);
-            } else {
-                let alloc = new_value!(context.func_data())
-                    .alloc(Type::get_array(self.b_type.into(), size));
-                context.add_inst(alloc);
-
-                for (exp, idx) in parse.filter() {
-                    let eval = exp.eval(&context.syb_table)?;
-                    let func_data = context.func_data();
-                    let value = new_value!(func_data).integer(eval);
-                    let index = new_value!(func_data).integer(idx as i32);
-                    let ptr = new_value!(func_data).get_elem_ptr(alloc, index);
-                    let store = new_value!(func_data).store(value, ptr);
-                    context.add_inst(ptr);
-                    context.add_inst(store);
+            let item = context.syb_table.new_symbol(&const_def)?;
+            let init = Some(Init::Const(const_def.const_init_val));
+            match item {
+                SymbolItem::Const(symbol) => {
+                    symbol
+                        .clone()
+                        .gen_value(self.b_type.into(), &init, context)?;
                 }
-
-                context.syb_table.set_alloc(const_def.get_ident(), alloc)?;
+                SymbolItem::ConstArray(symbol) => {
+                    symbol
+                        .clone()
+                        .gen_value(self.b_type.into(), &init, context)?;
+                }
+                _ => unreachable!(),
             }
         }
         Ok(())
@@ -506,80 +514,21 @@ impl GenerateIr<()> for ConstDecl {
 
 impl GenerateIr<()> for VarDecl {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
-        let is_global = context.is_global();
-
         for var_def in self.var_defs.clone() {
-            context.syb_table.new_symbol(&var_def)?;
-            let symbol = context.syb_table.lookup(var_def.get_ident()).unwrap();
-            let size = symbol.size();
-            let is_single = symbol.is_single();
-
-            if is_global {
-                // GLOBAL VARIABLE
-
-                // Allocate global memory for the variable
-                let init = if is_single {
-                    match &var_def.init_val {
-                        Some(init) => {
-                            let int = init.as_element()?.eval(&context.syb_table)?;
-                            context.program.new_value().integer(int)
-                        }
-                        None => context.program.new_value().zero_init(self.b_type.into()),
-                    }
-                } else {
-                    match &var_def.init_val {
-                        Some(init) => {
-                            let map = |exp: &Exp| exp.eval(&context.syb_table).unwrap();
-                            let values = init
-                                .parse(symbol.get_bias()?)?
-                                .unfold(map, 0)
-                                .iter()
-                                .map(|int| context.program.new_value().integer(*int))
-                                .collect();
-                            context.program.new_value().aggregate(values)
-                        }
-                        None => context
-                            .program
-                            .new_value()
-                            .zero_init(Type::get_array(self.b_type.into(), symbol.size()?)),
-                    }
-                };
-                let alloc = context.program.new_value().global_alloc(init);
-                let name = global_ident!(var_def);
-                context.program.set_value_name(alloc, Some(name));
-                context.syb_table.set_alloc(&var_def.ident, alloc)?;
-            } else {
-                // LOCAL VARIABLE
-
-                let func_data = context.func_data();
-                // Allocate memory for the variable
-                let alloc = if is_single {
-                    new_value!(func_data).alloc(self.b_type.into())
-                } else {
-                    new_value!(func_data).alloc(Type::get_array(self.b_type.into(), size?))
-                };
-                set_value_name!(func_data, alloc, normal_ident!(var_def));
-                context.add_inst(alloc);
-                
-                if let Some(init) = &var_def.init_val {
-                    if is_single {
-                        let init = init.as_element()?.generate_on(context)?;
-                        let store = new_value!(context.func_data()).store(init, alloc);
-                        context.add_inst(store);
-                    } else {
-                        let symbol = context.syb_table.lookup(var_def.get_ident()).unwrap();
-                        for (exp, idx) in init.parse(symbol.get_bias()?)?.filter() {
-                            let value = exp.generate_on(context)?;
-                            let func_data = context.func_data();
-                            let index = new_value!(func_data).integer(idx as i32);
-                            let ptr = new_value!(func_data).get_elem_ptr(alloc, index);
-                            let store = new_value!(func_data).store(value, ptr);
-                            context.add_inst(ptr);
-                            context.add_inst(store);
-                        }
-                    };
+            let item = context.syb_table.new_symbol(&var_def)?;
+            let init = var_def.init_val.map(|init| Init::Var(init));
+            match item {
+                SymbolItem::Var(symbol) => {
+                    symbol
+                        .clone()
+                        .gen_value(self.b_type.into(), &init, context)?;
                 }
-                context.syb_table.set_alloc(var_def.get_ident(), alloc)?;
+                SymbolItem::VarArray(symbol) => {
+                    symbol
+                        .clone()
+                        .gen_value(self.b_type.into(), &init, context)?;
+                }
+                _ => unreachable!(),
             }
         }
         Ok(())
@@ -593,16 +542,13 @@ impl GenerateIr<Value> for LVal {
                 SymbolItem::Var(symbol) => symbol.get_alloc(),
                 SymbolItem::VarArray(symbol) => {
                     let symbol = symbol.clone();
-                    let alloc = symbol.get_alloc()?;
                     let mut indexes = vec![];
-                    for exp in self.array_index.clone() {
+                    for exp in &self.array_index {
                         indexes.push(exp.generate_on(context)?);
                     }
-                    let bias = symbol.index(&indexes, context)?;
-                    let addr = new_value!(context.func_data()).get_elem_ptr(alloc, bias);
-                    context.add_inst(addr);
+                    let addr = symbol.index(&indexes, context)?;
                     Ok(addr)
-                },
+                }
                 _ => unreachable!("Constants are not allowed to be assigned!"),
             },
             None => Err(AstError::SymbolNotFoundError(self.ident.clone())),
@@ -839,7 +785,17 @@ impl GenerateIr<Value> for LValExp {
         match context.syb_table.lookup_item(&self.ident) {
             Some(item) => match &item {
                 SymbolItem::Const(symbol) => symbol.value.clone().generate_on(context),
-                SymbolItem::ConstArray(_) => todo!(),
+                SymbolItem::ConstArray(symbol) => {
+                    let symbol = symbol.clone();
+                    let mut indexes = vec![];
+                    for exp in &self.array_index {
+                        indexes.push(exp.generate_on(context)?);
+                    }
+                    let addr = symbol.index(&indexes, context)?;
+                    let load = context.new_value().load(addr);
+                    context.add_inst(load);
+                    Ok(load)
+                }
                 _ => {
                     let lval = LVal {
                         ident: self.ident.clone(),

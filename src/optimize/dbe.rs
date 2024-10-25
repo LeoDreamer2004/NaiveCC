@@ -1,6 +1,6 @@
-use koopa::ir::{builder_traits::*, BasicBlock, Function, FunctionData, Value, ValueKind};
+use koopa::ir::{BasicBlock, Function, FunctionData, ValueKind};
 use koopa::opt::FunctionPass;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Performs dead code elimination.
 pub struct DeadBlockCodeElimination {
