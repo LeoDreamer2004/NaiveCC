@@ -1,16 +1,17 @@
 //! Generate IR from AST
 
 use super::ast::*;
-use super::builtin::builtin_functions;
+use super::builtin::set_up_builtins;
+use super::context::Context;
 use super::eval::Eval;
 use super::loops::*;
 use super::symbol::*;
+use crate::utils::namer::{global_ident, normal_ident};
 use koopa::back::KoopaGenerator;
-use koopa::ir::builder::{GlobalBuilder, LocalBuilder};
-use koopa::ir::builder_traits::*;
+use koopa::ir::builder::LocalInstBuilder;
+use koopa::ir::builder::ValueBuilder;
 use koopa::ir::Type;
-use koopa::ir::ValueKind;
-use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value};
+use koopa::ir::{BinaryOp, FunctionData, Program, Value};
 use std::io;
 
 pub fn build_ir(ast: CompUnit) -> Result<Program, AstError> {
@@ -25,16 +26,6 @@ pub fn emit_ir(program: &mut Program, output: impl io::Write) -> Result<(), io::
 
 /*********************  Structs  *********************/
 
-/// Context for current generating
-#[derive(Default)]
-pub struct Context {
-    pub program: Program,
-    pub syb_table: SymbolTable,
-    pub func: Option<Function>,
-    pub block: Option<BasicBlock>,
-    pub loop_stack: LoopStack,
-}
-
 #[derive(Debug)]
 pub enum AstError {
     FunctionNotFoundError(String),
@@ -48,7 +39,6 @@ pub enum AstError {
     UnknownError(String),
 }
 
-// /*********************  Traits  *********************/
 /// Trait which should be implemented by AST types to generate IR
 ///
 /// Return a value of type `T` if needed
@@ -60,185 +50,9 @@ pub trait GenerateIr<T> {
     fn generate_on(&self, context: &mut Context) -> Result<T, AstError>;
 }
 
-/*********************  Utils  *********************/
-
-/// Create a new [`BasicBlock`] in [`Function`]
-macro_rules! new_bb {
-    ($func:expr) => {
-        $func.dfg_mut().new_bb()
-    };
-}
-
-/// Create a new [`Value`] in [`Function`]
-macro_rules! new_value {
-    ($func:expr) => {
-        $func.dfg_mut().new_value()
-    };
-}
-
-/// Add a [`BasicBlock`] to the layout of [`Function`]
-macro_rules! add_bb {
-    ($func:expr, $bb:expr) => {
-        $func.layout_mut().bbs_mut().push_key_back($bb).unwrap()
-    };
-}
-
-/// Get all instructions in a [`BasicBlock`] in [`Function`]
-macro_rules! all_insts {
-    ($func:expr, $bb:expr) => {
-        $func.layout_mut().bb_mut($bb).insts_mut()
-    };
-}
-
-/// Add an [`Value`] to a [`BasicBlock`] in [`Function`]
-macro_rules! add_inst {
-    ($func:expr, $bb:expr, $inst:expr) => {
-        all_insts!($func, $bb).push_key_back($inst).unwrap()
-    };
-}
-
-/// Set the name of a [`Value`] in the [`FunctionData`]
-macro_rules! set_value_name {
-    ($func:expr, $value:expr, $name:expr) => {
-        $func.dfg_mut().set_value_name($value, Some($name))
-    };
-}
-
-/// Generate a global identifier in Koopa IR
-macro_rules! global_ident {
-    ($def:expr) => {
-        format!("@{}", &$def.ident)
-    };
-}
-
-/// Generate a normal identifier in Koopa IR
-macro_rules! normal_ident {
-    ($def:expr) => {
-        format!("%{}", $def.ident)
-    };
-}
-
-/*********************  Implementations  *********************/
-
-impl Context {
-    pub fn func(&mut self, func: Function) {
-        self.func = Some(func);
-    }
-
-    pub fn block(&mut self, block: BasicBlock) {
-        self.block = Some(block);
-    }
-
-    pub fn func_data(&mut self) -> &mut FunctionData {
-        self.program.func_mut(self.func.unwrap())
-    }
-
-    pub fn new_value(&mut self) -> LocalBuilder {
-        self.func_data().dfg_mut().new_value()
-    }
-
-    pub fn glb_new_value(&mut self) -> GlobalBuilder {
-        self.program.new_value()
-    }
-
-    pub fn integer(&mut self, value: i32) -> Value {
-        if self.is_global() {
-            self.glb_new_value().integer(value)
-        } else {
-            self.new_value().integer(value)
-        }
-    }
-
-    pub fn aggregate(&mut self, values: Vec<Value>) -> Value {
-        if self.is_global() {
-            self.glb_new_value().aggregate(values)
-        } else {
-            self.new_value().aggregate(values)
-        }
-    }
-
-    pub fn zero_init(&mut self, ty: Type) -> Value {
-        if self.is_global() {
-            self.glb_new_value().zero_init(ty)
-        } else {
-            self.new_value().zero_init(ty)
-        }
-    }
-
-    pub fn is_global(&self) -> bool {
-        self.func.is_none()
-    }
-
-    /// Create a new block and set it as the current block
-    pub fn create_block(&mut self, name: Option<String>) {
-        let block = new_bb!(self.func_data()).basic_block(name);
-        add_bb!(self.func_data(), block);
-        self.block(block);
-    }
-
-    pub fn if_block_ended(&mut self, bb: &BasicBlock) -> bool {
-        let last = all_insts!(self.func_data(), *bb).back_key().copied();
-        match last {
-            Some(inst) => {
-                let kind = self.func_data().dfg().value(inst).kind();
-                match kind {
-                    ValueKind::Jump(_) => true,
-                    ValueKind::Branch(_) => true,
-                    ValueKind::Return(_) => true,
-                    _ => false,
-                }
-            }
-            None => false,
-        }
-    }
-
-    /// Generate a new block and append it to the layout
-    /// If enabled `auto_link`, It will automatically add a jump to the next block if needed
-    pub fn new_block(&mut self, name: Option<String>, auto_link: bool) -> BasicBlock {
-        let current_block_ended = self.if_block_ended(&self.block.unwrap());
-
-        let block = self.block.unwrap();
-        let func_data = self.func_data();
-        if !all_insts!(func_data, block).is_empty() || !auto_link {
-            // If the last block is not empty, or forced not to link, create a new block
-            let this = new_bb!(func_data).basic_block(name);
-            add_bb!(func_data, this);
-
-            // If the current block is not ended, add a jump to the next block
-            if auto_link && !current_block_ended {
-                let jump = new_value!(func_data).jump(this);
-                add_inst!(func_data, block, jump);
-            }
-            self.block(this);
-        }
-        self.block.unwrap()
-    }
-
-    pub fn alloc_and_store(&mut self, value: Value, ty: Type) -> Value {
-        let alloc = self.new_value().alloc(ty);
-        let store = self.new_value().store(value, alloc);
-        self.add_inst(alloc);
-        self.add_inst(store);
-        alloc
-    }
-
-    pub fn in_entry(&mut self) -> bool {
-        self.func_data().layout().bbs().len() == 1
-    }
-
-    pub fn add_inst(&mut self, inst: Value) {
-        let func_data = self.program.func_mut(self.func.unwrap());
-        let block = self.block.unwrap();
-        add_inst!(func_data, block, inst);
-    }
-}
-
 impl GenerateIr<()> for CompUnit {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
-        // builtin functions
-        for func_data in builtin_functions() {
-            context.program.new_func(func_data);
-        }
+        set_up_builtins(context);
 
         for comp_item in &self.comp_items {
             match comp_item {
@@ -257,10 +71,10 @@ impl GenerateIr<()> for CompUnit {
 impl GenerateIr<()> for FuncDef {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
         let func = FunctionData::with_param_names(
-            global_ident!(self),
+            global_ident(&self.ident),
             self.params
                 .iter()
-                .map(|param| (Some(global_ident!(param)), param.b_type.into()))
+                .map(|param| (Some(global_ident(&param.ident)), param.b_type.into()))
                 .collect(),
             self.func_type.into(),
         );
@@ -276,15 +90,14 @@ impl GenerateIr<()> for FuncDef {
             context.syb_table.new_symbol(param)?;
             let value = context.func_data().params()[i];
             let alloc = context.alloc_and_store(value, param.b_type.into());
-            set_value_name!(context.func_data(), alloc, normal_ident!(param));
+            context.set_value_name(alloc, normal_ident(&param.ident));
             context.syb_table.set_alloc(&param.get_ident(), alloc)?;
         }
 
         self.block.generate_on(context)?;
         context.syb_table.exit_scope();
 
-        let func_data = context.func_data();
-        let ret = new_value!(func_data).ret(None);
+        let ret = context.new_value().ret(None);
         context.add_inst(ret);
         context.block = None;
         context.func = None;
@@ -358,9 +171,7 @@ impl GenerateIr<()> for Return {
             Some(exp) => Some(exp.generate_on(context)?),
             None => None,
         };
-
-        let func_data = context.func_data();
-        let ret = new_value!(func_data).ret(ret);
+        let ret = context.new_value().ret(ret);
         context.add_inst(ret);
         Ok(())
     }
@@ -369,11 +180,8 @@ impl GenerateIr<()> for Return {
 impl GenerateIr<()> for Assign {
     fn generate_on(&self, context: &mut Context) -> Result<(), AstError> {
         let alloc = self.l_val.generate_on(context)?;
-        let exp = self.exp.generate_on(context)?;
-
-        // Store the value to the variable
-        let func_data = context.func_data();
-        let store = new_value!(func_data).store(exp, alloc);
+        let value = self.exp.generate_on(context)?;
+        let store = context.new_value().store(value, alloc);
         context.add_inst(store);
         Ok(())
     }
@@ -395,19 +203,17 @@ impl GenerateIr<()> for If {
             else_stmt.generate_on(context)?;
             let end_bb = context.new_block(None, true);
 
-            let func_data = context.func_data();
             // branch to true/false
-            let branch = new_value!(func_data).branch(cond, true_bb, false_bb);
-            add_inst!(func_data, base_bb, branch);
+            let branch = context.new_value().branch(cond, true_bb, false_bb);
             // true jump to end
-            let jump = new_value!(func_data).jump(end_bb);
-            add_inst!(func_data, true_end_bb, jump);
+            let jump = context.new_value().jump(end_bb);
+            add_inst!(context.func_data(), base_bb, branch);
+            add_inst!(context.func_data(), true_end_bb, jump);
         } else {
             let end_bb = context.new_block(None, true);
             // branch to true/end
-            let func_data = context.func_data();
-            let branch = new_value!(func_data).branch(cond, true_bb, end_bb);
-            add_inst!(func_data, base_bb, branch);
+            let branch = context.new_value().branch(cond, true_bb, end_bb);
+            add_inst!(context.func_data(), base_bb, branch);
         };
 
         Ok(())
@@ -421,9 +227,8 @@ impl GenerateIr<()> for While {
             // The entry basic block is not allowed to have predecessors
             // so create a new block for the condition
             let cond_bb = context.new_block(Some("%cond".into()), false);
-            let func_data = context.func_data();
-            let jump = new_value!(func_data).jump(cond_bb);
-            add_inst!(func_data, block, jump);
+            let jump = context.new_value().jump(cond_bb);
+            add_inst!(context.func_data(), block, jump);
             cond_bb
         } else {
             context.new_block(Some("%cond".into()), true)
@@ -442,21 +247,18 @@ impl GenerateIr<()> for While {
 
         // jump back to the condition
         if !context.if_block_ended(&context.block.unwrap()) {
-            let func_data = context.func_data();
-            let jump = new_value!(func_data).jump(cond_bb);
+            let jump = context.new_value().jump(cond_bb);
             context.add_inst(jump);
         }
 
         let end_bb = context.new_block(None, true);
-        let func_data = context.func_data();
-
         // branch to body/end
-        let branch = new_value!(func_data).branch(cond, body_bb, end_bb);
-        add_inst!(func_data, cond_bb, branch);
-
+        let branch = context.new_value().branch(cond, body_bb, end_bb);
         // temp end block
-        let jump = new_value!(func_data).jump(end_bb);
-        add_inst!(func_data, temp_end_bb, jump);
+        let jump = context.new_value().jump(end_bb);
+
+        add_inst!(context.func_data(), cond_bb, branch);
+        add_inst!(context.func_data(), temp_end_bb, jump);
 
         context.loop_stack.pop();
         Ok(())
@@ -470,7 +272,7 @@ impl GenerateIr<()> for Break {
             .last()
             .ok_or(AstError::LoopStackError("break".into()))?
             .end_bb;
-        let jump = new_value!(context.func_data()).jump(end_bb);
+        let jump = context.new_value().jump(end_bb);
         context.add_inst(jump);
         Ok(())
     }
@@ -483,7 +285,7 @@ impl GenerateIr<()> for Continue {
             .last()
             .ok_or(AstError::LoopStackError("continue".into()))?
             .cond_bb;
-        let jump = new_value!(context.func_data()).jump(cond_bb);
+        let jump = context.new_value().jump(cond_bb);
         context.add_inst(jump);
         Ok(())
     }
@@ -591,11 +393,9 @@ impl GenerateIr<Value> for LOrExp {
                 // short circuit
 
                 // base block
-                let func_data = context.func_data();
-                let zero = new_value!(func_data).integer(0);
+                let zero = context.new_value().integer(0);
                 let lhs = op_exp.l_or_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let l_binary = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
+                let l_binary = context.new_value().binary(BinaryOp::NotEq, lhs, zero);
                 context.add_inst(l_binary);
                 let result = context.alloc_and_store(l_binary, Type::get_i32());
                 let base_bb = context.block.unwrap();
@@ -603,19 +403,17 @@ impl GenerateIr<Value> for LOrExp {
                 // false block
                 let false_bb = context.new_block(Some("%or_else".into()), false);
                 let rhs = op_exp.l_and_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let r_binary = new_value!(func_data).binary(BinaryOp::NotEq, zero, rhs);
-                let cover = new_value!(func_data).store(r_binary, result);
+                let r_binary = context.new_value().binary(BinaryOp::NotEq, zero, rhs);
+                let cover = context.new_value().store(r_binary, result);
                 context.add_inst(r_binary);
                 context.add_inst(cover);
 
                 // end block
                 let end_bb = context.new_block(None, true);
-                let func_data = context.func_data();
-                let branch = new_value!(func_data).branch(l_binary, end_bb, false_bb);
-                add_inst!(func_data, base_bb, branch);
+                let branch = context.new_value().branch(l_binary, end_bb, false_bb);
+                add_inst!(context.func_data(), base_bb, branch);
 
-                let result = new_value!(func_data).load(result);
+                let result = context.new_value().load(result);
                 context.add_inst(result);
                 Ok(result)
             }
@@ -631,11 +429,9 @@ impl GenerateIr<Value> for LAndExp {
                 // short circuit
 
                 // base block
-                let func_data = context.func_data();
-                let zero = new_value!(func_data).integer(0);
+                let zero = context.new_value().integer(0);
                 let lhs = op_exp.l_and_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let l_binary = new_value!(func_data).binary(BinaryOp::NotEq, lhs, zero);
+                let l_binary = context.new_value().binary(BinaryOp::NotEq, lhs, zero);
                 context.add_inst(l_binary);
                 let result = context.alloc_and_store(l_binary, Type::get_i32());
                 let base_bb = context.block.unwrap();
@@ -643,19 +439,17 @@ impl GenerateIr<Value> for LAndExp {
                 // true block
                 let true_bb = context.new_block(Some("%and_else".into()), false);
                 let rhs = op_exp.eq_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let r_binary = new_value!(func_data).binary(BinaryOp::NotEq, rhs, zero);
-                let cover = new_value!(func_data).store(r_binary, result);
+                let r_binary = context.new_value().binary(BinaryOp::NotEq, rhs, zero);
+                let cover = context.new_value().store(r_binary, result);
                 context.add_inst(r_binary);
                 context.add_inst(cover);
 
                 // end block
                 let end_bb = context.new_block(None, true);
-                let func_data = context.func_data();
-                let branch = new_value!(func_data).branch(l_binary, true_bb, end_bb);
-                add_inst!(func_data, base_bb, branch);
+                let branch = context.new_value().branch(l_binary, true_bb, end_bb);
+                add_inst!(context.func_data(), base_bb, branch);
 
-                let result = new_value!(func_data).load(result);
+                let result = context.new_value().load(result);
                 context.add_inst(result);
                 Ok(result)
             }
@@ -670,8 +464,7 @@ impl GenerateIr<Value> for EqExp {
             EqExp::EqOpExp(op_exp) => {
                 let lhs = op_exp.eq_exp.generate_on(context)?;
                 let rhs = op_exp.rel_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let value = new_value!(func_data).binary(op_exp.eq_op.into(), lhs, rhs);
+                let value = context.new_value().binary(op_exp.eq_op.into(), lhs, rhs);
                 context.add_inst(value);
                 Ok(value)
             }
@@ -686,8 +479,7 @@ impl GenerateIr<Value> for RelExp {
             RelExp::RelOpExp(op_exp) => {
                 let lhs = op_exp.rel_exp.generate_on(context)?;
                 let rhs = op_exp.add_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let value = new_value!(func_data).binary(op_exp.rel_op.into(), lhs, rhs);
+                let value = context.new_value().binary(op_exp.rel_op.into(), lhs, rhs);
                 context.add_inst(value);
                 Ok(value)
             }
@@ -702,8 +494,7 @@ impl GenerateIr<Value> for AddExp {
             AddExp::AddOpExp(op_exp) => {
                 let lhs = op_exp.add_exp.generate_on(context)?;
                 let rhs = op_exp.mul_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let value = new_value!(func_data).binary(op_exp.add_op.into(), lhs, rhs);
+                let value = context.new_value().binary(op_exp.add_op.into(), lhs, rhs);
                 context.add_inst(value);
                 Ok(value)
             }
@@ -718,8 +509,9 @@ impl GenerateIr<Value> for MulExp {
             MulExp::MulOpExp(mul_op_exp) => {
                 let lhs = mul_op_exp.mul_exp.generate_on(context)?;
                 let rhs = mul_op_exp.unary_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let value = new_value!(func_data).binary(mul_op_exp.mul_op.into(), lhs, rhs);
+                let value = context
+                    .new_value()
+                    .binary(mul_op_exp.mul_op.into(), lhs, rhs);
                 context.add_inst(value);
                 Ok(value)
             }
@@ -734,12 +526,11 @@ impl GenerateIr<Value> for UnaryExp {
 
             UnaryExp::UnaryOpExp(unary_op_exp) => {
                 let exp = unary_op_exp.unary_exp.generate_on(context)?;
-                let func_data = context.func_data();
-                let zero = new_value!(func_data).integer(0);
+                let zero = context.new_value().integer(0);
                 let value = match unary_op_exp.unary_op {
                     UnaryOp::Pos => return Ok(exp),
-                    UnaryOp::Neg => new_value!(func_data).binary(BinaryOp::Sub, zero, exp),
-                    UnaryOp::Not => new_value!(func_data).binary(BinaryOp::Eq, exp, zero),
+                    UnaryOp::Neg => context.new_value().binary(BinaryOp::Sub, zero, exp),
+                    UnaryOp::Not => context.new_value().binary(BinaryOp::Eq, exp, zero),
                 };
                 context.add_inst(value);
                 Ok(value)
@@ -752,7 +543,7 @@ impl GenerateIr<Value> for UnaryExp {
                     args.push(arg.generate_on(context)?);
                 }
                 for (&func, data) in context.program.funcs() {
-                    if data.name() == global_ident!(func_call).as_str() {
+                    if data.name() == global_ident(&func_call.ident).as_str() {
                         callee = Some(func);
                         break;
                     }
@@ -761,8 +552,7 @@ impl GenerateIr<Value> for UnaryExp {
                     return Err(AstError::FunctionNotFoundError(func_call.ident.clone()));
                 }
 
-                let func_data = context.func_data();
-                let call = new_value!(func_data).call(callee.unwrap(), args);
+                let call = context.new_value().call(callee.unwrap(), args);
                 context.add_inst(call);
                 Ok(call)
             }
@@ -802,7 +592,7 @@ impl GenerateIr<Value> for LValExp {
                         array_index: self.array_index.clone(),
                     };
                     let alloc = lval.generate_on(context)?;
-                    let load = new_value!(context.func_data()).load(alloc);
+                    let load = context.new_value().load(alloc);
                     context.add_inst(load);
                     Ok(load)
                 }
@@ -822,7 +612,7 @@ impl GenerateIr<Value> for Number {
 
 impl GenerateIr<Value> for i32 {
     fn generate_on(&self, context: &mut Context) -> Result<Value, AstError> {
-        let int = new_value!(context.func_data()).integer(*self);
+        let int = context.new_value().integer(*self);
         Ok(int)
     }
 }

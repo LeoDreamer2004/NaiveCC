@@ -82,8 +82,8 @@ pub struct FuncFParam {
     pub b_type: BType,
     pub ident: String,
     pub is_array: bool,
-    // For a[][5], 'extra_array_size' is Some([5]).
-    pub extra_array_size: Vec<Exp>,
+    // For a[][5], 'array_size' is Some([5]).
+    pub array_size: Vec<Exp>,
 }
 
 #[derive(Debug, Clone)]

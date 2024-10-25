@@ -41,6 +41,19 @@ where
     }
 }
 
+pub fn normal_ident(ident: &String) -> String {
+    format!("%{}", ident)
+}
+
+pub fn global_ident(ident: &String) -> String {
+    format!("@{}", ident)
+}
+
+pub fn original_ident(ident: &String) -> String {
+    ident[1..].to_string()
+}
+
+
 #[cfg(test)]
 mod test {
     use super::NameGenerator;

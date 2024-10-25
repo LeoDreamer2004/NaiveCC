@@ -103,9 +103,9 @@ FuncDef: FuncDef = {
 }
 
 FuncFParam: FuncFParam = {
-    <b_type: BType> <ident: Ident> => FuncFParam { <>, is_array: false, extra_array_size: vec![] },
+    <b_type: BType> <ident: Ident> => FuncFParam { <>, is_array: false, array_size: vec![] },
 
-    <b_type: BType> <ident: Ident> "[" "]" <extra_array_size: Index<Exp>> => FuncFParam { <>, is_array: true }
+    <b_type: BType> <ident: Ident> "[" "]" <array_size: Index<Exp>> => FuncFParam { <>, is_array: true }
 }
 
 Block: Block = "{" <block_items: BlockItem*> "}" => Block { <> };

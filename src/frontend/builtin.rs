@@ -1,6 +1,8 @@
 use koopa::ir::{FunctionData, Type};
 
-pub fn builtin_functions() -> Vec<FunctionData> {
+use super::context::Context;
+
+fn builtin_functions() -> Vec<FunctionData> {
     let get_int = FunctionData::new_decl("@getint".into(), vec![], Type::get_i32());
     let get_ch = FunctionData::new_decl("@getch".into(), vec![], Type::get_i32());
     let get_array = FunctionData::new_decl(
@@ -20,4 +22,12 @@ pub fn builtin_functions() -> Vec<FunctionData> {
     vec![
         get_int, get_ch, get_array, put_int, put_ch, put_array, start_time, end_time,
     ]
+}
+
+pub fn set_up_builtins(context: &mut Context) {
+    // builtin functions
+    let builtins = builtin_functions();
+    for func in builtins {
+        context.program.new_func(func);
+    }
 }

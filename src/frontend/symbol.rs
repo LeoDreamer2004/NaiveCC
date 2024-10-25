@@ -1,6 +1,9 @@
+use crate::utils::namer::{global_ident, normal_ident};
+
 use super::ast::{ConstDef, ConstExp, ConstInitVal, Exp, FuncFParam, InitVal, VarDef};
+use super::context::Context;
 use super::eval::Eval;
-use super::generate::{Context, GenerateIr};
+use super::generate::GenerateIr;
 use super::AstError;
 use koopa::ir::builder::{GlobalInstBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{Type, Value};
@@ -216,6 +219,7 @@ impl Symbol for VarSymbol {
             context.alloc_and_store(init, ty.clone())
         };
         context.syb_table.set_alloc(self.ident(), alloc)?;
+        context.set_value_name(alloc, normal_ident(self.ident()));
         Ok(())
     }
 }
@@ -315,6 +319,7 @@ impl Symbol for VarArraySymbol {
                 _ => unreachable!(),
             }
         };
+        context.set_value_name(alloc, global_ident(self.ident()));
         context.syb_table.set_alloc(self.ident(), alloc)?;
         Ok(())
     }
@@ -366,6 +371,7 @@ impl Symbol for ConstArraySymbol {
             let init = init.map(|&int| context.new_value().integer(int));
             fill_local(init, self.get_bias()?, context)
         };
+        context.set_value_name(alloc, global_ident(self.ident()));
         context.syb_table.set_alloc(self.ident(), alloc)?;
         Ok(())
     }

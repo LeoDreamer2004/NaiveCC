@@ -1,8 +1,8 @@
 use super::instruction::*;
 use super::register::{
-    self, AsmElement, RegisterDispatcher, RegisterType, RiscVRegister, INT_SIZE, Pointer
+    self, AsmElement, Pointer, RegisterDispatcher, RegisterType, RiscVRegister, INT_SIZE,
 };
-use crate::utils::namer::NameGenerator;
+use crate::utils::namer::{original_ident, NameGenerator};
 use koopa::ir::entities::ValueData;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Program, Value, ValueKind};
 use std::io::Write;
@@ -10,12 +10,6 @@ use std::io::Write;
 macro_rules! func_data {
     ($context:expr) => {
         $context.program.func($context.function.unwrap())
-    };
-}
-
-macro_rules! original_ident {
-    ($func_data:expr) => {
-        $func_data.name()[1..].to_string()
     };
 }
 
@@ -41,7 +35,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn to_ptr(&self, value: Value) -> Pointer {
-         if value.is_global() {
+        if value.is_global() {
             &*self.program.borrow_value(value)
         } else {
             func_data!(self).dfg().value(value)
@@ -110,7 +104,7 @@ impl GenerateAsm for Program {
 impl GenerateAsm for FunctionData {
     fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
         asm.push(Inst::Directive(Directive::Text));
-        let label = original_ident!(self);
+        let label = original_ident(&self.name().to_string());
         asm.push(Inst::Directive(Directive::Globl(label.clone())));
         asm.push(Inst::Label(label));
         context.dispatcher.new_frame(self, asm);
@@ -227,7 +221,7 @@ impl GenerateAsm for ValueData {
                     context.dispatcher.save_func_param(index, param, asm)?;
                 }
                 let func_data = context.program.func(call.callee());
-                let ident = original_ident!(func_data);
+                let ident = original_ident(&func_data.name().to_string());
                 asm.push(Inst::Call(Call(ident)));
                 context.dispatcher.new_val(self)?;
 
