@@ -134,6 +134,7 @@ impl AsmElement {
         unsafe {
             match data.as_ref().unwrap().kind() {
                 ValueKind::Integer(int) => AsmElement::Imm(int.value()),
+                ValueKind::ZeroInit(_) => AsmElement::Imm(0),
                 _ => AsmElement::Local(data),
             }
         }
