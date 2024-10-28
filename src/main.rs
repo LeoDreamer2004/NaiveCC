@@ -15,9 +15,9 @@ use std::io;
 use std::process::exit;
 
 mod backend;
-mod utils;
 mod frontend;
 mod optimize;
+mod utils;
 
 lalrpop_mod!(sysy);
 

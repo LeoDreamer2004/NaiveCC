@@ -127,7 +127,7 @@ __IfMatchStmt: Stmt = {
 
     <Exp> ";" => Stmt::Exp(Box::new(<>)),
 
-    <l_val: LVal> "=" <exp: Exp> ";" => Stmt::Assign(Box::new(Assign { <> })),
+    <l_val: LValAssign> "=" <exp: Exp> ";" => Stmt::Assign(Box::new(Assign { <> })),
 
     <Block> => Stmt::Block(Box::new(<>)),
 
@@ -149,8 +149,8 @@ __IfOpenStmt: Stmt = {
     "if" "(" <cond: Cond> ")" <stmt: __IfMatchStmt> "else" <else_stmt: __IfOpenStmt> => Stmt::If(Box::new(If { cond, stmt, else_stmt: Some(else_stmt) })),
 }
 
-LVal: LVal = {
-    <ident: Ident> <array_index: Index<Exp>> => LVal { <> }
+LValAssign: LValAssign = {
+    <ident: Ident> <array_index: Index<Exp>> => LValAssign { <> }
 }
 
 Exp: Exp = {

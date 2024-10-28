@@ -111,13 +111,19 @@ pub enum Stmt {
 }
 
 #[derive(Debug, Clone)]
+pub struct LVal {
+    pub ident: String,
+    pub array_index: Vec<Exp>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Assign {
-    pub l_val: LVal,
+    pub l_val: LValAssign,
     pub exp: Exp,
 }
 
 #[derive(Debug, Clone)]
-pub struct LVal {
+pub struct LValAssign {
     pub ident: String,
     pub array_index: Vec<Exp>,
 }

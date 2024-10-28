@@ -162,8 +162,7 @@ impl Context {
     }
 
     pub fn add_inst(&mut self, inst: Value) {
-        let func_data = self.program.func_mut(self.func.unwrap());
         let block = self.block.unwrap();
-        add_inst!(func_data, block, inst);
+        add_inst!(self.func_data(), block, inst);
     }
 }

@@ -10,7 +10,7 @@ use koopa::ir::{Type, Value};
 
 /// Symbol Table
 /// Implemented as a stack of scopes
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SymbolTable {
     pub items: Vec<SymbolItem>,
 }
@@ -21,7 +21,21 @@ pub enum SymbolItem {
     VarArray(VarArraySymbol),
     Const(ConstSymbol),
     ConstArray(ConstArraySymbol),
-    ScopeSeparator,
+    FParamArray(FParamArraySymbol),
+    ScopeSeparator(EmptySymbol),
+}
+
+impl SymbolItem {
+    pub fn symbol(&self) -> &dyn Symbol {
+        match self {
+            SymbolItem::Var(symbol) => symbol,
+            SymbolItem::VarArray(symbol) => symbol,
+            SymbolItem::Const(symbol) => symbol,
+            SymbolItem::ConstArray(symbol) => symbol,
+            SymbolItem::FParamArray(symbol) => symbol,
+            SymbolItem::ScopeSeparator(symbol) => symbol,
+        }
+    }
 }
 
 impl SymbolTable {
@@ -31,15 +45,20 @@ impl SymbolTable {
     }
 
     pub fn set_alloc(&mut self, ident: &String, alloc: Value) -> Result<(), AstError> {
-        match self.items.last_mut().unwrap() {
-            SymbolItem::Var(symbol) => symbol.set_alloc(alloc),
-            SymbolItem::VarArray(symbol) => symbol.set_alloc(alloc),
-            SymbolItem::Const(symbol) => symbol.set_alloc(alloc),
-            SymbolItem::ConstArray(symbol) => symbol.set_alloc(alloc),
-            SymbolItem::ScopeSeparator => Err(AstError::UnknownError(
-                "Trying to allocate scope separator".to_string(),
-            )),
+        for item in &mut self.items.iter_mut().rev() {
+            if item.symbol().ident() == ident {
+                match item {
+                    SymbolItem::Var(symbol) => symbol.set_alloc(alloc)?,
+                    SymbolItem::VarArray(symbol) => symbol.set_alloc(alloc)?,
+                    SymbolItem::Const(symbol) => symbol.set_alloc(alloc)?,
+                    SymbolItem::ConstArray(symbol) => symbol.set_alloc(alloc)?,
+                    SymbolItem::FParamArray(symbol) => symbol.set_alloc(alloc)?,
+                    SymbolItem::ScopeSeparator(symbol) => symbol.set_alloc(alloc)?,
+                };
+                return Ok(());
+            }
         }
+        Ok(())
     }
 
     pub fn lookup_item(&self, ident: &String) -> Option<&SymbolItem> {
@@ -50,7 +69,8 @@ impl SymbolTable {
                 SymbolItem::VarArray(symbol) => symbol.ident().clone(),
                 SymbolItem::Const(symbol) => symbol.ident().clone(),
                 SymbolItem::ConstArray(symbol) => symbol.ident().clone(),
-                SymbolItem::ScopeSeparator => String::new(),
+                SymbolItem::FParamArray(symbol) => symbol.ident().clone(),
+                SymbolItem::ScopeSeparator(symbol) => symbol.ident().clone(),
             };
             if ident.clone() == d {
                 return Some(item);
@@ -59,14 +79,18 @@ impl SymbolTable {
         None
     }
 
+    pub fn lookup(&self, ident: &String) -> Option<&dyn Symbol> {
+        self.lookup_item(ident).map(|item| item.symbol())
+    }
+
     pub fn enter_scope(&mut self) {
-        self.items.push(SymbolItem::ScopeSeparator);
+        self.items.push(SymbolItem::ScopeSeparator(EmptySymbol {}));
     }
 
     pub fn exit_scope(&mut self) {
         loop {
             match self.items.pop().unwrap() {
-                SymbolItem::ScopeSeparator => break,
+                SymbolItem::ScopeSeparator(_) => break,
                 _ => {}
             }
         }
@@ -75,7 +99,7 @@ impl SymbolTable {
 
 /****************** Symbol Definitions *******************/
 
-pub trait Symbol: Clone {
+pub trait Symbol {
     /// Returns the identifier of the symbol
     fn ident(&self) -> &String;
     /// Returns true if the symbol is a single variable
@@ -94,18 +118,6 @@ pub trait Symbol: Clone {
     fn get_alloc(&self) -> Result<Value, AstError>;
     /// Returns the dimension bias of the symbol
     fn get_bias(&self) -> Result<&Vec<usize>, AstError>;
-    /// Returns the size of the symbol
-    ///
-    /// # Error
-    /// If the symbol has not been added to the symbol table
-    /// or the symbol is not an array
-    fn size(&self) -> Result<usize, AstError> {
-        if self.is_single() {
-            Err(AstError::TypeError("Not an array".to_string()))
-        } else {
-            Ok(self.get_bias()?[0])
-        }
-    }
     /// Returns the index of the symbol
     ///
     /// # Error
@@ -127,6 +139,13 @@ pub trait Symbol: Clone {
             context.add_inst(ptr);
         }
         Ok(ptr)
+    }
+    /// Returns the type of the symbol
+    fn get_type(&self, ty: &Type) -> Result<Type, AstError> {
+        if self.is_single() {
+            return Ok(ty.clone());
+        }
+        Ok(gen_array_type(ty, self.get_bias()?))
     }
 
     fn gen_value(
@@ -166,12 +185,16 @@ pub struct VarArraySymbol {
 
 // What is different from VarArraySymbol is that the first dimension of the array is unknown
 // Which means it can reach an infinite size (unsafe though)
-#[derive(Debug)]
-pub struct ParamArraySymbol {
+// In code, we make a trick to set the first demension size = 1
+#[derive(Debug, Clone)]
+pub struct FParamArraySymbol {
     ident: String,
     alloc: Option<Value>,
     ptr_bias: Vec<usize>,
 }
+
+#[derive(Debug, Clone)]
+pub struct EmptySymbol {}
 
 /****************** Symbol Traits & Implementations *******************/
 
@@ -209,7 +232,14 @@ impl Symbol for VarSymbol {
         context: &mut Context,
     ) -> Result<(), AstError> {
         let init = match init {
-            Some(Init::Var(symbol)) => symbol.as_element()?.generate_on(context)?,
+            Some(Init::Var(symbol)) => {
+                if context.is_global() {
+                    let int = symbol.as_element()?.eval(&context.syb_table)?;
+                    context.glb_new_value().integer(int)
+                } else {
+                    symbol.as_element()?.generate_on(context)?
+                }
+            }
             None => context.zero_init(ty.clone()),
             _ => unreachable!(),
         };
@@ -315,7 +345,11 @@ impl Symbol for VarArraySymbol {
                         .map(|exp| exp.generate_on(context).unwrap());
                     fill_local(init, self.get_bias()?, context)
                 }
-                None => context.new_value().alloc(arr_ty),
+                None => {
+                    let alloc = context.new_value().alloc(arr_ty);
+                    context.add_inst(alloc);
+                    alloc
+                }
                 _ => unreachable!(),
             }
         };
@@ -354,7 +388,7 @@ impl Symbol for ConstArraySymbol {
 
     fn gen_value(
         &self,
-        ty: Type,
+        _: Type,
         init: &Option<Init>,
         context: &mut Context,
     ) -> Result<(), AstError> {
@@ -373,6 +407,94 @@ impl Symbol for ConstArraySymbol {
         };
         context.set_value_name(alloc, global_ident(self.ident()));
         context.syb_table.set_alloc(self.ident(), alloc)?;
+        Ok(())
+    }
+}
+
+impl Symbol for FParamArraySymbol {
+    fn ident(&self) -> &String {
+        &self.ident
+    }
+
+    fn is_single(&self) -> bool {
+        false
+    }
+
+    fn is_const(&self) -> bool {
+        false
+    }
+
+    fn set_alloc(&mut self, alloc: Value) -> Result<(), AstError> {
+        self.alloc = Some(alloc);
+        Ok(())
+    }
+
+    fn get_alloc(&self) -> Result<Value, AstError> {
+        self.alloc
+            .ok_or(AstError::IllegalAccessError("No allocation".to_string()))
+    }
+
+    fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
+        Ok(&self.ptr_bias)
+    }
+
+    fn get_type(&self, ty: &Type) -> Result<Type, AstError> {
+        let mut bias = self.get_bias()?.clone();
+        bias.remove(0);
+        Ok(Type::get_pointer(gen_array_type(ty, &bias)))
+    }
+    fn index(&self, indexes: &Vec<Value>, context: &mut Context) -> Result<Value, AstError> {
+        if indexes.is_empty() {
+            return self.get_alloc();
+        }
+        if indexes.len() > self.get_bias()?.len() - 1 {
+            return Err(AstError::IllegalAccessError(
+                "Array dimensions mismatch".to_string(),
+            ));
+        }
+        let mut ptr = context.new_value().load(self.get_alloc()?);
+        context.add_inst(ptr);
+        ptr = context.new_value().get_ptr(ptr, indexes[0]);
+        context.add_inst(ptr);
+        for &index in indexes[1..].iter() {
+            ptr = context.new_value().get_elem_ptr(ptr, index);
+            context.add_inst(ptr);
+        }
+        Ok(ptr)
+    }
+    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Context) -> Result<(), AstError> {
+        // Do nothing, as it is finished in Koopa builtin
+        Ok(())
+    }
+}
+
+const EMPTY_IDENT: &String = &String::new();
+impl Symbol for EmptySymbol {
+    fn ident(&self) -> &String {
+        EMPTY_IDENT
+    }
+
+    fn is_single(&self) -> bool {
+        false
+    }
+
+    fn is_const(&self) -> bool {
+        false
+    }
+
+    fn set_alloc(&mut self, _: Value) -> Result<(), AstError> {
+        Ok(())
+    }
+
+    fn get_alloc(&self) -> Result<Value, AstError> {
+        Err(AstError::IllegalAccessError("No allocation".to_string()))
+    }
+
+    fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
+        Err(AstError::IllegalAccessError("No bias".to_string()))
+    }
+
+    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Context) -> Result<(), AstError> {
         Ok(())
     }
 }
@@ -497,11 +619,23 @@ impl SymbolLike for FuncFParam {
     }
 
     fn wrap(&self, table: &SymbolTable) -> Result<SymbolItem, AstError> {
+        let ident = self.get_ident().clone();
         if !self.is_array {
-            let ident = self.get_ident().clone();
             Ok(SymbolItem::Var(VarSymbol { ident, alloc: None }))
         } else {
-            todo!();
+            let mut bias = 1;
+            let mut ptr_bias = vec![1];
+            for size in self.array_size.iter().rev() {
+                bias *= size.eval(table)? as usize;
+                ptr_bias.push(bias);
+            }
+            ptr_bias.push(*ptr_bias.last().unwrap());
+            ptr_bias.reverse();
+            Ok(SymbolItem::FParamArray(FParamArraySymbol {
+                ident,
+                alloc: None,
+                ptr_bias,
+            }))
         }
     }
 }
