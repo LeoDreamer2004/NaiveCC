@@ -4,6 +4,7 @@ pub type AsmProgram = Vec<Inst>;
 pub type Label = String;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Inst {
     Nop,
     Placeholder(u8),

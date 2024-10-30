@@ -527,8 +527,11 @@ fn fill_global(init: ArrayParseResult<i32>, bias: &Vec<usize>, context: &mut Con
 
 fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, context: &mut Context) -> Value {
     let arr_ty = gen_array_type(&Type::get_i32(), bias);
-    let alloc = context.new_value().alloc(arr_ty);
+    let alloc = context.new_value().alloc(arr_ty.clone());
     context.add_inst(alloc);
+    let zero = context.new_value().zero_init(arr_ty);
+    let store = context.new_value().store(zero, alloc);
+    context.add_inst(store);
     for (value, idx) in init.filter() {
         let mut c_idx = idx;
         let index = context.new_value().integer((c_idx / bias[1]) as i32);
