@@ -1,6 +1,6 @@
 use super::{AsmHelper, Optimizer};
 use crate::backend::register::FREE_REG;
-use crate::backend::instruction::*;
+use crate::backend::{instruction::*, is_imm12};
 
 
 pub struct ImmFixOptimizer {}
@@ -9,10 +9,6 @@ impl ImmFixOptimizer {
     pub fn new() -> Self {
         Self {}
     }
-}
-
-fn is_imm12(imm: i32) -> bool {
-    imm >= -2048 && imm <= 2047
 }
 
 impl Optimizer for ImmFixOptimizer {
@@ -27,7 +23,28 @@ impl Optimizer for ImmFixOptimizer {
                         csr.insert(Inst::Li(Li(FREE_REG, imm)));
                         csr.insert(Inst::Add(Add(rd, rs, FREE_REG)));
                     }
-                }, 
+                },
+                Inst::Ori(Ori(rd, rs, imm)) => {
+                    if !is_imm12(imm) {
+                        csr.remove_cur();
+                        csr.insert(Inst::Li(Li(FREE_REG, imm)));
+                        csr.insert(Inst::Or(Or(rd, rs, FREE_REG)));
+                    }
+                },
+                Inst::Andi(Andi(rd, rs, imm)) => {
+                    if !is_imm12(imm) {
+                        csr.remove_cur();
+                        csr.insert(Inst::Li(Li(FREE_REG, imm)));
+                        csr.insert(Inst::And(And(rd, rs, FREE_REG)));
+                    }
+                },
+                Inst::Xori(Xori(rd, rs, imm)) => {
+                    if !is_imm12(imm) {
+                        csr.remove_cur();
+                        csr.insert(Inst::Li(Li(FREE_REG, imm)));
+                        csr.insert(Inst::Xor(Xor(rd, rs, FREE_REG)));
+                    }
+                },
                 Inst::Lw(Lw(rd, rs, imm)) => {
                     if !is_imm12(imm) {
                         csr.remove_cur();

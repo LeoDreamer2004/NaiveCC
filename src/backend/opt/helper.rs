@@ -53,6 +53,13 @@ impl<'a> Cursor<'a> {
         &self.helper.asm[self.idx]
     }
 
+    pub fn peek(&self, bias: i32) -> Option<&Inst> {
+        if (self.idx as i32 + bias) < 0 || (self.idx as i32 + bias) as usize >= self.tot_len {
+            return None;
+        }
+        Some(&self.helper.asm[(self.idx as i32 + bias) as usize])
+    }
+
     pub fn remove_cur(&mut self) {
         self.remove = true;
     }

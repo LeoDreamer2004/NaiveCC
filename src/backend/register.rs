@@ -71,6 +71,7 @@ pub enum RegisterType {
 }
 
 pub const FREE_REG: Register = T0;
+pub const ANY_REG: Register = &RiscVRegister { name: "any" };
 
 impl RegisterType {
     pub const ARGU_REGISTERS: [Register; 8] = [A0, A1, A2, A3, A4, A5, A6, A7];

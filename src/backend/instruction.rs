@@ -32,8 +32,11 @@ pub enum Inst {
     And(And),
     Andi(Andi),
     Sll(Sll),
+    Slli(Slli),
     Srl(Srl),
+    Srli(Srli),
     Sra(Sra),
+    Srai(Srai),
     Mul(Mul),
     Div(Div),
     Rem(Rem),
@@ -71,8 +74,11 @@ impl Inst {
             Inst::And(and) => format!("and {}, {}, {}", and.0, and.1, and.2),
             Inst::Andi(andi) => format!("andi {}, {}, {}", andi.0, andi.1, andi.2),
             Inst::Sll(sll) => format!("sll {}, {}, {}", sll.0, sll.1, sll.2),
+            Inst::Slli(slli) => format!("slli {}, {}, {}", slli.0, slli.1, slli.2),
             Inst::Srl(srl) => format!("srl {}, {}, {}", srl.0, srl.1, srl.2),
+            Inst::Srli(srli) => format!("srli {}, {}, {}", srli.0, srli.1, srli.2),
             Inst::Sra(sra) => format!("sra {}, {}, {}", sra.0, sra.1, sra.2),
+            Inst::Srai(srai) => format!("srai {}, {}, {}", srai.0, srai.1, srai.2),
             Inst::Mul(mul) => format!("mul {}, {}, {}", mul.0, mul.1, mul.2),
             Inst::Div(div) => format!("div {}, {}, {}", div.0, div.1, div.2),
             Inst::Rem(rem) => format!("rem {}, {}, {}", rem.0, rem.1, rem.2),
@@ -191,13 +197,25 @@ pub struct Andi(pub Register, pub Register, pub Imm12);
 #[derive(Debug, Default, Clone)]
 pub struct Sll(pub Register, pub Register, pub Register);
 
+/// **Slli(rd, rs, imm)**: shift left logical rs by imm bits, and store the result to rd.
+#[derive(Debug, Default, Clone)]
+pub struct Slli(pub Register, pub Register, pub Imm12);
+
 /// **Srl(rd, rs1, rs2)**: shift right logical rs1 by rs2 bits, and store the result to rd.
 #[derive(Debug, Default, Clone)]
 pub struct Srl(pub Register, pub Register, pub Register);
 
+/// **Srli(rd, rs, imm)**: shift right logical rs by imm bits, and store the result to rd.
+#[derive(Debug, Default, Clone)]
+pub struct Srli(pub Register, pub Register, pub Imm12);
+
 /// **Sra(rd, rs1, rs2)**: shift right arithmetic rs1 by rs2 bits, and store the result to rd.
 #[derive(Debug, Default, Clone)]
 pub struct Sra(pub Register, pub Register, pub Register);
+
+/// **Srai(rd, rs, imm)**: shift right arithmetic rs by imm bits, and store the result to rd.
+#[derive(Debug, Default, Clone)]
+pub struct Srai(pub Register, pub Register, pub Imm12);
 
 /// **Mul(rd, rs1, rs2)**: multiply rs1 by rs2, and store the result to rd.
 #[derive(Debug, Default, Clone)]

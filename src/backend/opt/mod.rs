@@ -1,9 +1,11 @@
 use super::instruction::AsmProgram;
 mod immfix;
 mod helper;
+mod algorithm;
 
 use helper::AsmHelper;
 pub use immfix::ImmFixOptimizer;
+pub use algorithm::AlgorithmOptimizer;
 
 pub struct AsmOptimizeManager {
     optimizers: Vec<Box<dyn Optimizer>>,

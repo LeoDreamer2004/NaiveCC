@@ -1,37 +1,60 @@
-use koopa::ir::FunctionData;
 use koopa::ir::{entities::ValueData, ValueKind};
-use std::cmp::max;
-use std::collections::{HashMap, LinkedList};
+use std::collections::HashMap;
 
+use super::frames::Frame;
+use super::frames::FrameHelper;
 use super::instruction::*;
 use super::register::*;
-use super::AsmError;
+use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
 
 pub type Pointer = *const ValueData;
 
 #[derive(Debug, Default)]
 pub struct AsmManager {
-    map: HashMap<Pointer, DataInfo>,
-    frames: LinkedList<Frame>,
+    map: HashMap<Pointer, PointerInfo>,
     dpt: RegisterDispatcher,
-}
-
-#[derive(Debug, Default)]
-pub struct Frame {
-    var_size: usize,
-    has_call: bool,
-    param_bias: usize,
+    fh: FrameHelper,
 }
 
 #[derive(Debug, Clone)]
-pub struct DataInfo {
+pub struct RegPack {
+    pub reg: Register,
+    pub data: Storage,
+}
+
+impl RegPack {
+    pub fn new(reg: Register) -> Self {
+        Self {
+            reg,
+            data: Storage::Empty,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PointerInfo {
     /// where the data is stored
     location: Location,
-    // if the data is a pointer to another data
-    //
-    // If so, when this pointer is loaded or stored,
-    // we actually load or store the data it points to
-    // is_ptr: bool,
+    /// what the pointer refers to
+    data: Storage,
+}
+
+#[derive(Debug, Clone)]
+pub enum Storage {
+    Empty,
+    Data,
+    Location(Location),
+}
+
+impl PartialEq for Storage {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Storage::Empty, Storage::Empty) => true,
+            (Storage::Location(a), Storage::Location(b)) => a == b,
+            // for computer, we don't care about the data in the register
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,56 +98,38 @@ impl AsmElement {
     }
 }
 
-pub const MAX_PARAM_REG: usize = 8;
-pub const INT_SIZE: usize = 4;
-pub const MAX_STACK_SIZE: usize = 1 << 22;
-
 impl AsmManager {
-    const SP_IN: u8 = 0;
-    const SP_OUT: u8 = 1;
-    const SAVE_RA: u8 = 2;
-    const RECOVER_RA: u8 = 3;
-    const SAVE_S0: u8 = 4;
-    const RECOVER_S0: u8 = 5;
-
     pub fn dpt(&mut self) -> &mut RegisterDispatcher {
         &mut self.dpt
     }
 
-    /// Get the location of the data.
-    fn info(&self, ptr: Pointer) -> Option<&DataInfo> {
-        self.map.get(&ptr)
+    pub fn fh(&mut self) -> &mut FrameHelper {
+        &mut self.fh
     }
 
-    fn try_info(&self, ptr: Pointer) -> Result<&DataInfo, AsmError> {
-        self.info(ptr).ok_or(AsmError::NullLocation(None))
+    /// Get the location of the data.
+    fn info(&self, ptr: Pointer) -> Result<&PointerInfo, AsmError> {
+        self.map.get(&ptr).ok_or(AsmError::NullLocation(None))
+    }
+
+    fn info_mut(&mut self, ptr: Pointer) -> Result<&mut PointerInfo, AsmError> {
+        self.map.get_mut(&ptr).ok_or(AsmError::NullLocation(None))
     }
 
     /// Get the current frame.
     fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
-        self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
-    }
-
-    /// Get the current frame.
-    fn current_frame(&self) -> Result<&Frame, AsmError> {
-        self.frames.back().ok_or(AsmError::InvalidStackFrame)
+        self.fh.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
     }
 
     fn add_location(&mut self, ptr: Pointer, location: Location) {
         self.map.insert(
             ptr,
-            DataInfo {
+            PointerInfo {
                 location,
-                // is_ptr: false,
+                data: Storage::Empty,
             },
         );
     }
-
-    // pub fn mark_as_ptr(&mut self, ptr: Pointer) {
-    // if let Some(info) = self.map.get_mut(&ptr) {
-    // info.is_ptr = true;
-    // }
-    // }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
         self.add_location(ptr, Location::Data(Data { label, offset: 0 }));
@@ -160,141 +165,17 @@ impl AsmManager {
         self.map.remove(&ptr);
     }
 
-    fn need_save_ra(&self) -> bool {
-        self.current_frame().map_or(false, |frame| frame.has_call)
-    }
-
-    fn need_use_s0(&self) -> bool {
-        self.current_frame()
-            .map_or(false, |frame| frame.param_bias > 0)
-    }
-
-    /// Start a new frame.
-    pub fn new_frame(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
-        asm.push(Inst::Comment("-- prologue".to_string()));
-        // add a placeholder here, waiting for update when the frame size is known.
-        asm.push(Inst::Placeholder(Self::SP_IN));
-
-        let mut frame = Frame::default();
-
-        // calculate the parameter bias
-        for (_, node) in func_data.layout().bbs() {
-            for inst in node.insts().keys() {
-                let data = func_data.dfg().value(*inst);
-                if let ValueKind::Call(call) = data.kind() {
-                    frame.has_call = true;
-                    let p_num = call.args().len();
-                    if p_num > MAX_PARAM_REG {
-                        frame.param_bias =
-                            max(frame.param_bias, INT_SIZE * (p_num - MAX_PARAM_REG));
-                    }
-                }
-            }
-        }
-        self.frames.push_back(frame);
-
-        if self.need_save_ra() {
-            asm.push(Inst::Placeholder(Self::SAVE_RA));
-        }
-        if self.need_use_s0() {
-            asm.push(Inst::Placeholder(Self::SAVE_S0));
-            asm.push(Inst::Mv(Mv(S0, SP)));
-        }
-    }
-
-    /// Mark an exit of the frame.
-    pub fn out_frame(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
-        // read all "call" instructions in the function
-        asm.push(Inst::Comment("-- epilogue".to_string()));
-        if self.need_save_ra() {
-            asm.push(Inst::Placeholder(Self::RECOVER_RA));
-        }
-        if self.need_use_s0() {
-            asm.push(Inst::Placeholder(Self::RECOVER_S0));
-        }
-        asm.push(Inst::Placeholder(Self::SP_OUT));
-        Ok(())
-    }
-
-    /// End the frame.
-    pub fn end_frame(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
-        let mut size = 0;
-        if self.need_save_ra() {
-            size += INT_SIZE;
-        }
-        if self.need_use_s0() {
-            size += INT_SIZE;
-        }
-        let frame = self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
-        size += frame.var_size + frame.param_bias;
-
-        // align to 16
-        let size = ((size + 15) & !15) as i32;
-        if size > MAX_STACK_SIZE as i32 {
-            return Err(AsmError::StackOverflow);
-        }
-
-        // recover the place holder
-        let mut flag = false;
-        for inst in asm.iter_mut().rev() {
-            if let Inst::Placeholder(p) = inst {
-                match *p {
-                    Self::SP_IN => {
-                        flag = true;
-                        if size == 0 {
-                            *inst = Inst::Nop;
-                        } else {
-                            *inst = Inst::Addi(Addi(SP, SP, -size));
-                        }
-                        break;
-                    }
-                    Self::SP_OUT => {
-                        *inst = if size == 0 {
-                            Inst::Nop
-                        } else {
-                            Inst::Addi(Addi(SP, SP, size))
-                        }
-                    }
-                    Self::SAVE_RA => {
-                        *inst = Inst::Sw(Sw(RA, SP, size - INT_SIZE as i32));
-                    }
-                    Self::RECOVER_RA => {
-                        *inst = Inst::Lw(Lw(RA, SP, size - INT_SIZE as i32));
-                    }
-                    Self::SAVE_S0 => {
-                        *inst = Inst::Sw(Sw(S0, SP, size - 2 * INT_SIZE as i32));
-                    }
-                    Self::RECOVER_S0 => {
-                        *inst = Inst::Lw(Lw(S0, SP, size - 2 * INT_SIZE as i32));
-                    }
-                    _ => unreachable!("Unknown placeholder"),
-                }
-            }
-        }
-        if !flag {
-            return Err(AsmError::InvalidStackFrame);
-        }
-        Ok(())
-    }
-
     /// Save data in the register to the address of the dest.
     pub fn save_val_to(
         &mut self,
         dest: Pointer,
-        src: Register,
+        src: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        // if self.try_info(dest)?.is_ptr {
-        //     // just load the data of the pointer, and store the data in the register
-        //     self.load_raw_val_to(dest, FREE_REG, asm)?;
-        //     asm.push(Inst::Sw(Sw(src, FREE_REG, 0)));
-        //     // FIXME: decide whether to free the register here
-        //     self.dpt.release(src);
-        //     return Ok(());
-        // }
+        let info = self.info_mut(dest)?;
+        info.data = src.data.clone();
 
-        let info = self.try_info(dest)?;
-
+        let src = src.reg;
         match &info.location.clone() {
             Location::Register(reg) => {
                 if *reg == src {
@@ -318,30 +199,42 @@ impl AsmManager {
         Ok(())
     }
 
-    /// TODO: Merge the two functions
-    /// such as load_imm(&mut self, imm: i32, dest: Option<RiscVRegister>, asm: &mut AsmProgram) -> Result<RiscVRegister, AsmError>
-
-    pub fn load_imm_to(&mut self, imm: i32, dest: Register, asm: &mut AsmProgram) {
-        asm.push(Inst::Li(Li(dest, imm)));
+    fn true_reg(&mut self, reg: Register) -> Register {
+        if reg == ANY_REG {
+            self.dpt.dispatch(RegisterType::Temp)
+        } else {
+            reg
+        }
     }
 
-    pub fn load_imm(&mut self, imm: i32, asm: &mut AsmProgram) -> Result<Register, AsmError> {
-        if imm == 0 {
-            // simple optimization for zero
-            return Ok(ZERO);
+    pub fn load_imm_to(
+        &mut self,
+        imm: i32,
+        dest: &mut RegPack,
+        asm: &mut AsmProgram,
+    ) -> Result<(), AsmError> {
+        // We never reuse immediate, only load it to the register.
+        dest.data = Storage::Data;
+        let dest_reg = dest.reg;
+        if dest_reg == ANY_REG && imm == 0 {
+            dest.reg = ZERO;
+        } else {
+            let dest_reg = self.true_reg(dest_reg);
+            asm.push(Inst::Li(Li(dest_reg, imm)));
+            dest.reg = dest_reg;
         }
-        let reg = self.dpt.dispatch(RegisterType::Temp);
-        self.load_imm_to(imm, reg, asm);
-        Ok(reg)
+        Ok(())
     }
 
     /// Build a reference to the location, and save the address to the register.
     pub fn load_ref_to(
         &mut self,
         location: Location,
-        dest: Register,
+        dest: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
+        dest.data = Storage::Location(location.clone());
+        let dest = dest.reg;
         self.dpt.occupy(dest);
         match location {
             Location::Register(_) => {
@@ -359,27 +252,35 @@ impl AsmManager {
     }
 
     /// Load the data from the address of the src to the register.
-    pub fn load_deref_to(&mut self, src: Register, dest: Register, asm: &mut AsmProgram) {
-        asm.push(Inst::Lw(Lw(dest, src, 0)));
+    pub fn load_deref_to(&mut self, src: &RegPack, dest: &mut RegPack, asm: &mut AsmProgram) {
+        asm.push(Inst::Lw(Lw(dest.reg, src.reg, 0)));
+        dest.data = Storage::Data;
     }
 
     /// Save the data in the register to the address of the dest.
-    pub fn save_deref_to(&mut self, src: Register, dest: Register, asm: &mut AsmProgram) {
-        asm.push(Inst::Sw(Sw(src, dest, 0)));
+    pub fn save_deref_to(&mut self, src: &RegPack, dest: &mut RegPack, asm: &mut AsmProgram) {
+        asm.push(Inst::Sw(Sw(src.reg, dest.reg, 0)));
+        dest.data = Storage::Data;
     }
 
     pub fn add_bias(
         &mut self,
-        reg: Register,
+        pack: &mut RegPack,
         bias: &AsmElement,
         unit_size: usize,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
+        let reg = pack.reg;
+        // TODO: Pack data has been changed
         match bias {
             AsmElement::Local(ptr) => {
-                self.load_val_to(ptr.clone(), FREE_REG, asm)?;
+                self.load_val_to(ptr.clone(), &mut RegPack::new(FREE_REG), asm)?;
                 self.dpt.occupy(reg);
-                let unit = self.load_imm(unit_size as i32, asm)?;
+
+                let mut pack = RegPack::new(ANY_REG);
+                self.load_imm_to(unit_size as i32, &mut pack, asm)?;
+                let unit = pack.reg;
+
                 self.dpt.release(reg);
                 asm.push(Inst::Mul(Mul(FREE_REG, FREE_REG, unit)));
                 asm.push(Inst::Add(Add(reg, reg, FREE_REG)));
@@ -392,103 +293,53 @@ impl AsmManager {
         Ok(())
     }
 
-    pub fn load_raw_val_to(
-        &mut self,
-        src: Pointer,
-        dest: Register,
-        asm: &mut AsmProgram,
-    ) -> Result<(), AsmError> {
-        self.dpt.occupy(dest);
-        let info = self.try_info(src)?;
-        match &info.location {
-            Location::Register(register) => {
-                if *register == dest {
-                    return Ok(());
-                }
-                asm.push(Inst::Mv(Mv(dest, *register)));
-            }
-            Location::Stack(stack) => {
-                asm.push(Inst::Lw(Lw(dest, stack.base, stack.offset)));
-            }
-            Location::Data(data) => {
-                asm.push(Inst::La(La(dest, data.label.clone())));
-                asm.push(Inst::Addi(Addi(dest, dest, data.offset)));
-            }
-        }
-        Ok(())
-    }
-
+    /// Load the data from the address of the src to the register.
     pub fn load_val_to(
         &mut self,
         src: Pointer,
-        dest: Register,
+        dest: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        self.load_raw_val_to(src, dest, asm)?;
-        let info = self.try_info(src)?;
-        // if info.is_ptr {
-        //     asm.push(Inst::Lw(Lw(dest, dest, 0)));
-        // }
-        Ok(())
-    }
+        let location = self.info(src)?.location.clone();
+        dest.data = Storage::Location(location.clone());
 
-    /// Load the data from the address of the src to the register.
-    pub fn load_val(&mut self, src: Pointer, asm: &mut AsmProgram) -> Result<Register, AsmError> {
-        let info = self.try_info(src)?;
-        match &info.location {
-            // cannot reach register here before we finish the optimization
+        let dest_reg = dest.reg;
+        let is_none = dest_reg == ANY_REG;
+        let dest_reg = self.true_reg(dest_reg);
+        self.dpt.occupy(dest_reg);
+        match location {
             Location::Register(reg) => {
-                // if info.is_ptr {
-                //     asm.push(Inst::Lw(Lw(*reg, *reg, 0)));
-                // }
-                Ok(*reg)
+                dest.reg = reg;
+                if is_none {
+                    self.dpt.release(dest_reg);
+                } else if reg != dest_reg {
+                    asm.push(Inst::Mv(Mv(dest_reg, reg)));
+                    dest.reg = dest_reg;
+                }
             }
-            _ => {
-                // In memory
-                let reg = self.dpt.dispatch(RegisterType::Temp);
-                self.load_val_to(src, reg, asm)?;
-                Ok(reg)
+            Location::Stack(stack) => {
+                asm.push(Inst::Lw(Lw(dest_reg, stack.base, stack.offset)));
+                dest.reg = dest_reg;
+            }
+            Location::Data(data) => {
+                asm.push(Inst::La(La(dest_reg, data.label.clone())));
+                asm.push(Inst::Addi(Addi(dest_reg, dest_reg, data.offset)));
+                dest.reg = dest_reg;
             }
         }
+        Ok(())
     }
 
     pub fn load_to(
         &mut self,
         element: &AsmElement,
-        dest: Register,
+        dest: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         match element {
             AsmElement::Local(ptr) => self.load_val_to(*ptr, dest, asm),
-            AsmElement::Imm(imm) => Ok(self.load_imm_to(*imm, dest, asm)),
+            AsmElement::Imm(imm) => self.load_imm_to(*imm, dest, asm),
         }
-    }
-
-    pub fn load(
-        &mut self,
-        element: &AsmElement,
-        asm: &mut AsmProgram,
-    ) -> Result<Register, AsmError> {
-        match element {
-            AsmElement::Local(ptr) => self.load_val(*ptr, asm),
-            AsmElement::Imm(imm) => Ok(self.load_imm(*imm, asm)?),
-        }
-    }
-
-    pub fn copy(
-        &mut self,
-        src: &AsmElement,
-        dest: Pointer,
-        asm: &mut AsmProgram,
-    ) -> Result<(), AsmError> {
-        let reg = self.load(src, asm)?;
-        self.save_val_to(dest, reg, asm)?;
-        // if let AsmElement::Local(ptr) = src {
-        // if self.try_info(ptr.clone())?.is_ptr {
-        //     self.mark_as_ptr(dest);
-        // }
-        // }
-        Ok(())
     }
 
     fn param_location(index: usize) -> Location {
@@ -523,9 +374,11 @@ impl AsmManager {
         // TODO: Save local variables to the stack/callee-saved registers
         let e = AsmElement::from(param);
         match Self::param_location(index) {
-            Location::Register(reg) => self.load_to(&e, reg, asm)?,
+            Location::Register(reg) => {
+                self.load_to(&e, &mut RegPack::new(reg), asm)?;
+            }
             Location::Stack(stack) => {
-                self.load_to(&e, FREE_REG, asm)?;
+                self.load_to(&e, &mut RegPack::new(FREE_REG), asm)?;
                 asm.push(Inst::Sw(Sw(FREE_REG, stack.base, stack.offset)));
             }
             Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),

@@ -1,7 +1,8 @@
 use super::instruction::*;
-use super::manager::{AsmElement, AsmManager, Pointer, INT_SIZE};
+use super::manager::{AsmElement, AsmManager, Pointer, RegPack};
 use super::opt::*;
-use super::register::{self, Register, RegisterType, FREE_REG};
+use super::register::{self, RegisterType, ANY_REG};
+use super::INT_SIZE;
 use crate::utils::namer::{original_ident, NameGenerator};
 use koopa::ir::entities::ValueData;
 use koopa::ir::{
@@ -59,13 +60,11 @@ impl<'a> Context<'a> {
         }
     }
 
-    pub fn load_value_to_reg(
-        &mut self,
-        value: Value,
-        asm: &mut AsmProgram,
-    ) -> Result<Register, AsmError> {
+    pub fn new_pack(&mut self, value: Value, asm: &mut AsmProgram) -> Result<RegPack, AsmError> {
         let e = value.into_element(self);
-        self.manager.load(&e, asm)
+        let mut pack = RegPack::new(ANY_REG);
+        self.manager.load_to(&e, &mut pack, asm)?;
+        Ok(pack)
     }
 }
 
@@ -141,18 +140,12 @@ impl GenerateAsm for FunctionData {
         let label = original_ident(&self.name().to_string());
         asm.push(Inst::Directive(Directive::Globl(label.clone())));
         asm.push(Inst::Label(label));
-        context.manager.new_frame(self, asm);
+        context.manager.fh().new_frame(self, asm);
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
             let param = context.to_ptr(p);
             context.manager.load_func_param(index, param)?;
-            // match context.value_type(p).kind() {
-            //     TypeKind::Pointer(_) => {
-            //         context.manager.mark_as_ptr(param);
-            //     }
-            //     _ => {}
-            // }
         }
 
         for (&bb, node) in self.layout().bbs() {
@@ -162,7 +155,7 @@ impl GenerateAsm for FunctionData {
                 self.dfg().value(inst).generate_on(context, asm)?;
             }
         }
-        context.manager.end_frame(asm)?;
+        context.manager.fh().end_frame(asm)?;
         Ok(())
     }
 }
@@ -182,27 +175,28 @@ impl GenerateAsm for ValueData {
                 let location = context.manager.malloc(size)?;
                 // new value "self" as a pointer
                 let reg = context.manager.dpt().dispatch(RegisterType::Temp);
-                context.manager.load_ref_to(location, reg, asm)?;
+                let mut pack = RegPack::new(reg);
+                context.manager.load_ref_to(location, &mut pack, asm)?;
                 context.manager.new_val(self)?;
-                context.manager.save_val_to(self, reg, asm)?;
+                context.manager.save_val_to(self, &mut pack, asm)?;
                 context.manager.dpt().release(reg);
             }
             ValueKind::Store(store) => {
-                let src = context.load_value_to_reg(store.value(), asm)?;
-                let dest = context.load_value_to_reg(store.dest(), asm)?;
-                context.manager.save_deref_to(src, dest, asm);
-                context.manager.dpt().release(src);
-                context.manager.dpt().release(dest);
+                let mut src = context.new_pack(store.value(), asm)?;
+                let mut dest = context.new_pack(store.dest(), asm)?;
+                context.manager.save_deref_to(&mut src, &mut dest, asm);
+                context.manager.dpt().release(src.reg);
+                context.manager.dpt().release(dest.reg);
             }
             ValueKind::Load(load) => {
-                let rs = context.load_value_to_reg(load.src(), asm)?;
-                context.manager.load_deref_to(rs, rs, asm);
+                let mut pack = context.new_pack(load.src(), asm)?;
+                context.manager.load_deref_to(&pack.clone(), &mut pack, asm);
                 context.manager.new_val(self)?;
-                context.manager.save_val_to(self, rs, asm)?;
+                context.manager.save_val_to(self, &mut pack, asm)?;
             }
             ValueKind::Binary(binary) => {
-                let rs1 = context.load_value_to_reg(binary.lhs(), asm)?;
-                let rs2 = context.load_value_to_reg(binary.rhs(), asm)?;
+                let rs1 = context.new_pack(binary.lhs(), asm)?.reg;
+                let rs2 = context.new_pack(binary.rhs(), asm)?.reg;
                 let rd = context.manager.dpt().dispatch(RegisterType::Temp);
                 let insts = match binary.op() {
                     BinaryOp::Add => vec![Inst::Add(Add(rd, rs1, rs2))],
@@ -243,7 +237,9 @@ impl GenerateAsm for ValueData {
                 asm.extend(insts);
 
                 context.manager.new_val(self)?;
-                context.manager.save_val_to(self, rd, asm)?;
+                context
+                    .manager
+                    .save_val_to(self, &mut RegPack::new(rd), asm)?;
 
                 context.manager.dpt().release(rs1);
                 context.manager.dpt().release(rs2);
@@ -251,9 +247,11 @@ impl GenerateAsm for ValueData {
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
                     let e = value.into_element(context);
-                    context.manager.load_to(&e, register::A0, asm)?;
+                    context
+                        .manager
+                        .load_to(&e, &mut RegPack::new(register::A0), asm)?;
                 }
-                context.manager.out_frame(asm)?;
+                context.manager.fh().out_frame(asm)?;
                 asm.push(Inst::Ret(Ret));
             }
             ValueKind::Jump(jump) => {
@@ -261,7 +259,7 @@ impl GenerateAsm for ValueData {
                 asm.push(Inst::J(J(context.label_gen.get_name(label))));
             }
             ValueKind::Branch(branch) => {
-                let rs = context.load_value_to_reg(branch.cond(), asm)?;
+                let rs = context.new_pack(branch.cond(), asm)?.reg;
                 let true_bb = branch.true_bb();
                 asm.push(Inst::Bnez(Bnez(rs, context.label_gen.get_name(true_bb))));
                 let false_bb = branch.false_bb();
@@ -278,9 +276,13 @@ impl GenerateAsm for ValueData {
                 asm.push(Inst::Call(Call(ident)));
                 context.manager.new_val(self)?;
 
-                // FIXME
-                if !func_data.ty().is_unit() {
-                    context.manager.save_val_to(self, register::A0, asm)?;
+                let is_unit = match func_data.ty().kind() {
+                    TypeKind::Function(_, ret) => ret.is_unit(),
+                    _ => unreachable!("Call callee should always be a function"),
+                };
+                if !is_unit {
+                    let mut pack = RegPack::new(register::A0);
+                    context.manager.save_val_to(self, &mut pack, asm)?;
                 }
             }
             ValueKind::GetElemPtr(ptr) => {
@@ -296,12 +298,11 @@ impl GenerateAsm for ValueData {
                     },
                     _ => unreachable!("GetElemPtr source should always be a pointer"),
                 };
-                let reg = context.load_value_to_reg(ptr.src(), asm)?;
+                let mut pack = context.new_pack(ptr.src(), asm)?;
                 let bias = &ptr.index().into_element(context);
-                context.manager.add_bias(reg, bias, size, asm)?;
+                context.manager.add_bias(&mut pack, bias, size, asm)?;
                 context.manager.new_val(self)?;
-                context.manager.save_val_to(self, reg, asm)?;
-                // context.manager.mark_as_ptr(self);
+                context.manager.save_val_to(self, &mut pack, asm)?;
             }
             ValueKind::GetPtr(ptr) => {
                 let ty = context.value_type(ptr.src());
@@ -309,11 +310,11 @@ impl GenerateAsm for ValueData {
                     TypeKind::Pointer(p) => p.size(),
                     _ => unreachable!("GetElemPtr source should always be a pointer"),
                 };
-                let reg = context.load_value_to_reg(ptr.src(), asm)?;
+                let mut pack = context.new_pack(ptr.src(), asm)?;
                 let bias = &ptr.index().into_element(context);
-                context.manager.add_bias(reg, bias, size, asm)?;
+                context.manager.add_bias(&mut pack, bias, size, asm)?;
                 context.manager.new_val(self)?;
-                context.manager.save_val_to(self, reg, asm)?;
+                context.manager.save_val_to(self, &mut pack, asm)?;
                 // context.manager.mark_as_ptr(self);
             }
             _ => unimplemented!(),
@@ -340,6 +341,7 @@ pub fn build_asm(ir_program: Program) -> Result<AsmProgram, AsmError> {
 
     let mut optman = AsmOptimizeManager::new();
     optman.add(Box::new(ImmFixOptimizer::new()));
+    optman.add(Box::new(AlgorithmOptimizer::new()));
     asm = optman.run(asm);
     Ok(asm)
 }
