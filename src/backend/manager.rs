@@ -27,15 +27,15 @@ pub struct Frame {
 pub struct DataInfo {
     /// where the data is stored
     location: Location,
-    /// if the data is a pointer to another data
-    ///
-    /// If so, when this pointer is loaded or stored,
-    /// we actually load or store the data it points to
-    is_ptr: bool,
+    // if the data is a pointer to another data
+    //
+    // If so, when this pointer is loaded or stored,
+    // we actually load or store the data it points to
+    // is_ptr: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Location {
+pub enum Location {
     /// The data is in the register.
     Register(Register),
     /// The data is in the stack.
@@ -46,13 +46,13 @@ enum Location {
 
 /// Stack address, which grows from high to low.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Stack {
+pub struct Stack {
     base: Register,
     offset: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Data {
+pub struct Data {
     label: Label,
     offset: i32,
 }
@@ -115,16 +115,16 @@ impl AsmManager {
             ptr,
             DataInfo {
                 location,
-                is_ptr: false,
+                // is_ptr: false,
             },
         );
     }
 
-    pub fn mark_as_ptr(&mut self, ptr: Pointer) {
-        if let Some(info) = self.map.get_mut(&ptr) {
-            info.is_ptr = true;
-        }
-    }
+    // pub fn mark_as_ptr(&mut self, ptr: Pointer) {
+    // if let Some(info) = self.map.get_mut(&ptr) {
+    // info.is_ptr = true;
+    // }
+    // }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
         self.add_location(ptr, Location::Data(Data { label, offset: 0 }));
@@ -134,25 +134,25 @@ impl AsmManager {
     pub fn new_val(&mut self, ptr: Pointer) -> Result<(), AsmError> {
         // Always save the data in the stack.
         // TODO: Malloc or Register? That's a question
-        self.malloc(ptr, INT_SIZE)
+        let address = self.malloc(INT_SIZE)?;
+        self.add_location(ptr, address);
+        Ok(())
     }
 
     /// Allocate register for the data.
-    pub fn ralloc(&mut self, ptr: Pointer) {
-        let reg = self.dpt.dispatch(RegisterType::Temp);
-        let address = Location::Register(reg);
-        self.add_location(ptr, address);
+    pub fn ralloc(&mut self) -> Result<Location, AsmError> {
+        // let reg = self.dpt.dispatch(RegisterType::Temp);
+        // let address = Location::Register(reg);
+        todo!()
     }
 
-    /// Allocate memory for the data.
-    pub fn malloc(&mut self, ptr: Pointer, size: usize) -> Result<(), AsmError> {
+    /// Allocate memory.
+    pub fn malloc(&mut self, size: usize) -> Result<Location, AsmError> {
         let frame = self.current_frame_mut()?;
         let offset = (frame.var_size + frame.param_bias) as i32;
         let address = Location::Stack(Stack { base: SP, offset });
         frame.var_size += size;
-
-        self.add_location(ptr, address);
-        Ok(())
+        Ok(address)
     }
 
     /// Free the memory for the data.
@@ -218,14 +218,15 @@ impl AsmManager {
 
     /// End the frame.
     pub fn end_frame(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
-        let frame = self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
-        let mut size = frame.var_size + frame.param_bias;
+        let mut size = 0;
         if self.need_save_ra() {
             size += INT_SIZE;
         }
         if self.need_use_s0() {
             size += INT_SIZE;
         }
+        let frame = self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
+        size += frame.var_size + frame.param_bias;
 
         // align to 16
         let size = ((size + 15) & !15) as i32;
@@ -283,14 +284,14 @@ impl AsmManager {
         src: Register,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        if self.try_info(dest)?.is_ptr {
-            // just load the data of the pointer, and store the data in the register
-            self.load_raw_val_to(dest, FREE_REG, asm)?;
-            asm.push(Inst::Sw(Sw(src, FREE_REG, 0)));
-            // FIXME: decide whether to free the register here
-            self.dpt.release(src);
-            return Ok(());
-        }
+        // if self.try_info(dest)?.is_ptr {
+        //     // just load the data of the pointer, and store the data in the register
+        //     self.load_raw_val_to(dest, FREE_REG, asm)?;
+        //     asm.push(Inst::Sw(Sw(src, FREE_REG, 0)));
+        //     // FIXME: decide whether to free the register here
+        //     self.dpt.release(src);
+        //     return Ok(());
+        // }
 
         let info = self.try_info(dest)?;
 
@@ -334,71 +335,61 @@ impl AsmManager {
         Ok(reg)
     }
 
-    pub fn load_address_to(
+    /// Build a reference to the location, and save the address to the register.
+    pub fn load_ref_to(
         &mut self,
-        src: Pointer,
-        bias: &AsmElement,
-        unit_size: usize,
+        location: Location,
         dest: Register,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         self.dpt.occupy(dest);
-        let info = self.try_info(src)?;
-
-        let (base, src_offset) = match &info.location.clone() {
-            Location::Register(reg) => {
-                if info.is_ptr {
-                    (*reg, 0)
-                } else {
-                    return Err(AsmError::IllegalGetAddress);
-                }
+        match location {
+            Location::Register(_) => {
+                return Err(AsmError::IllegalGetAddress);
             }
             Location::Stack(stack) => {
-                if info.is_ptr {
-                    let reg = self.dpt.dispatch(RegisterType::Temp);
-                    self.load_raw_val_to(src, reg, asm)?;
-                    self.dpt.release(reg);
-                    (reg, 0)
-                } else {
-                    (stack.base, stack.offset)
-                }
+                asm.push(Inst::Addi(Addi(dest, stack.base, stack.offset)));
             }
             Location::Data(data) => {
                 asm.push(Inst::La(La(dest, data.label.clone())));
-                (dest, data.offset)
+                asm.push(Inst::Addi(Addi(dest, dest, data.offset)));
             }
-        };
-        let (base, offset) = match bias {
-            AsmElement::Local(ptr) => {
-                // base += bias * unit_size
-                self.load_val_to(ptr.clone(), FREE_REG, asm)?;
-                self.dpt.occupy(base);
-                let unit = self.load_imm(unit_size as i32, asm)?;
-                self.dpt.release(base);
-                asm.push(Inst::Mul(Mul(FREE_REG, FREE_REG, unit)));
-                asm.push(Inst::Add(Add(dest, base, FREE_REG)));
-                self.dpt.release(unit);
-                (dest, src_offset)
-            }
-            AsmElement::Imm(imm) => (base, src_offset + imm * (unit_size as i32)),
-        };
-       if base != dest {
-            self.dpt.release(base);
         }
-        asm.push(Inst::Addi(Addi(dest, base, offset)));
         Ok(())
     }
 
-    pub fn load_address(
+    /// Load the data from the address of the src to the register.
+    pub fn load_deref_to(&mut self, src: Register, dest: Register, asm: &mut AsmProgram) {
+        asm.push(Inst::Lw(Lw(dest, src, 0)));
+    }
+
+    /// Save the data in the register to the address of the dest.
+    pub fn save_deref_to(&mut self, src: Register, dest: Register, asm: &mut AsmProgram) {
+        asm.push(Inst::Sw(Sw(src, dest, 0)));
+    }
+
+    pub fn add_bias(
         &mut self,
-        src: Pointer,
+        reg: Register,
         bias: &AsmElement,
         unit_size: usize,
         asm: &mut AsmProgram,
-    ) -> Result<Register, AsmError> {
-        let reg = self.dpt.dispatch(RegisterType::Temp);
-        self.load_address_to(src, bias, unit_size, reg, asm)?;
-        Ok(reg)
+    ) -> Result<(), AsmError> {
+        match bias {
+            AsmElement::Local(ptr) => {
+                self.load_val_to(ptr.clone(), FREE_REG, asm)?;
+                self.dpt.occupy(reg);
+                let unit = self.load_imm(unit_size as i32, asm)?;
+                self.dpt.release(reg);
+                asm.push(Inst::Mul(Mul(FREE_REG, FREE_REG, unit)));
+                asm.push(Inst::Add(Add(reg, reg, FREE_REG)));
+                self.dpt.release(unit);
+            }
+            AsmElement::Imm(imm) => {
+                asm.push(Inst::Addi(Addi(reg, reg, *imm * (unit_size as i32))));
+            }
+        }
+        Ok(())
     }
 
     pub fn load_raw_val_to(
@@ -421,7 +412,7 @@ impl AsmManager {
             }
             Location::Data(data) => {
                 asm.push(Inst::La(La(dest, data.label.clone())));
-                asm.push(Inst::Lw(Lw(dest, dest, data.offset)));
+                asm.push(Inst::Addi(Addi(dest, dest, data.offset)));
             }
         }
         Ok(())
@@ -435,9 +426,9 @@ impl AsmManager {
     ) -> Result<(), AsmError> {
         self.load_raw_val_to(src, dest, asm)?;
         let info = self.try_info(src)?;
-        if info.is_ptr {
-            asm.push(Inst::Lw(Lw(dest, dest, 0)));
-        }
+        // if info.is_ptr {
+        //     asm.push(Inst::Lw(Lw(dest, dest, 0)));
+        // }
         Ok(())
     }
 
@@ -447,9 +438,9 @@ impl AsmManager {
         match &info.location {
             // cannot reach register here before we finish the optimization
             Location::Register(reg) => {
-                if info.is_ptr {
-                    asm.push(Inst::Lw(Lw(*reg, *reg, 0)));
-                }
+                // if info.is_ptr {
+                //     asm.push(Inst::Lw(Lw(*reg, *reg, 0)));
+                // }
                 Ok(*reg)
             }
             _ => {
@@ -492,11 +483,11 @@ impl AsmManager {
     ) -> Result<(), AsmError> {
         let reg = self.load(src, asm)?;
         self.save_val_to(dest, reg, asm)?;
-        if let AsmElement::Local(ptr) = src {
-            if self.try_info(ptr.clone())?.is_ptr {
-                self.mark_as_ptr(dest);
-            }
-        }
+        // if let AsmElement::Local(ptr) = src {
+        // if self.try_info(ptr.clone())?.is_ptr {
+        //     self.mark_as_ptr(dest);
+        // }
+        // }
         Ok(())
     }
 

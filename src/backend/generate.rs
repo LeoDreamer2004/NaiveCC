@@ -1,7 +1,7 @@
 use super::instruction::*;
 use super::manager::{AsmElement, AsmManager, Pointer, INT_SIZE};
 use super::opt::*;
-use super::register::{self, Register, RegisterType};
+use super::register::{self, Register, RegisterType, FREE_REG};
 use crate::utils::namer::{original_ident, NameGenerator};
 use koopa::ir::entities::ValueData;
 use koopa::ir::{
@@ -147,12 +147,12 @@ impl GenerateAsm for FunctionData {
         for (index, &p) in self.params().iter().enumerate() {
             let param = context.to_ptr(p);
             context.manager.load_func_param(index, param)?;
-            match context.value_type(p).kind() {
-                TypeKind::Pointer(_) => {
-                    context.manager.mark_as_ptr(param);
-                }
-                _ => {}
-            }
+            // match context.value_type(p).kind() {
+            //     TypeKind::Pointer(_) => {
+            //         context.manager.mark_as_ptr(param);
+            //     }
+            //     _ => {}
+            // }
         }
 
         for (&bb, node) in self.layout().bbs() {
@@ -178,15 +178,25 @@ impl GenerateAsm for ValueData {
                     TypeKind::Pointer(p) => p.size(),
                     _ => unreachable!("Alloc type should always be a pointer"),
                 };
-                context.manager.malloc(self, size)?;
+                // malloc the data
+                let location = context.manager.malloc(size)?;
+                // new value "self" as a pointer
+                let reg = context.manager.dpt().dispatch(RegisterType::Temp);
+                context.manager.load_ref_to(location, reg, asm)?;
+                context.manager.new_val(self)?;
+                context.manager.save_val_to(self, reg, asm)?;
+                context.manager.dpt().release(reg);
             }
             ValueKind::Store(store) => {
-                let rs = context.load_value_to_reg(store.value(), asm)?;
-                let dest = context.to_ptr(store.dest());
-                context.manager.save_val_to(dest, rs, asm)?;
+                let src = context.load_value_to_reg(store.value(), asm)?;
+                let dest = context.load_value_to_reg(store.dest(), asm)?;
+                context.manager.save_deref_to(src, dest, asm);
+                context.manager.dpt().release(src);
+                context.manager.dpt().release(dest);
             }
             ValueKind::Load(load) => {
                 let rs = context.load_value_to_reg(load.src(), asm)?;
+                context.manager.load_deref_to(rs, rs, asm);
                 context.manager.new_val(self)?;
                 context.manager.save_val_to(self, rs, asm)?;
             }
@@ -286,12 +296,12 @@ impl GenerateAsm for ValueData {
                     },
                     _ => unreachable!("GetElemPtr source should always be a pointer"),
                 };
-                let src = context.to_ptr(ptr.src());
+                let reg = context.load_value_to_reg(ptr.src(), asm)?;
                 let bias = &ptr.index().into_element(context);
-                let addr = context.manager.load_address(src, bias, size, asm)?;
+                context.manager.add_bias(reg, bias, size, asm)?;
                 context.manager.new_val(self)?;
-                context.manager.save_val_to(self, addr, asm)?;
-                context.manager.mark_as_ptr(self);
+                context.manager.save_val_to(self, reg, asm)?;
+                // context.manager.mark_as_ptr(self);
             }
             ValueKind::GetPtr(ptr) => {
                 let ty = context.value_type(ptr.src());
@@ -299,12 +309,12 @@ impl GenerateAsm for ValueData {
                     TypeKind::Pointer(p) => p.size(),
                     _ => unreachable!("GetElemPtr source should always be a pointer"),
                 };
-                let src = context.to_ptr(ptr.src());
+                let reg = context.load_value_to_reg(ptr.src(), asm)?;
                 let bias = &ptr.index().into_element(context);
-                let addr = context.manager.load_address(src, bias, size, asm)?;
+                context.manager.add_bias(reg, bias, size, asm)?;
                 context.manager.new_val(self)?;
-                context.manager.save_val_to(self, addr, asm)?;
-                context.manager.mark_as_ptr(self);
+                context.manager.save_val_to(self, reg, asm)?;
+                // context.manager.mark_as_ptr(self);
             }
             _ => unimplemented!(),
         }
