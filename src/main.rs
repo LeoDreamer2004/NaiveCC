@@ -61,6 +61,7 @@ fn _handin(args: CommandLineArgs) {
                 AsmError::InvalidStackFrame => exit(82),
                 AsmError::NullLocation(_) => exit(83),
                 AsmError::StackOverflow => exit(84),
+                AsmError::IllegalGetAddress => exit(85),
             },
             _ => exit(40),
         }

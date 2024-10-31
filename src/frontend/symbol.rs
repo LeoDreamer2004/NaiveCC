@@ -529,10 +529,11 @@ fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, context: &mut Co
     let arr_ty = gen_array_type(&Type::get_i32(), bias);
     let alloc = context.new_value().alloc(arr_ty.clone());
     context.add_inst(alloc);
-    let zero = context.new_value().zero_init(arr_ty);
-    let store = context.new_value().store(zero, alloc);
-    context.add_inst(store);
-    for (value, idx) in init.filter() {
+    for (idx, &value) in init
+        .unfold(context.new_value().integer(0))
+        .iter()
+        .enumerate()
+    {
         let mut c_idx = idx;
         let index = context.new_value().integer((c_idx / bias[1]) as i32);
         let mut ptr = context.new_value().get_elem_ptr(alloc, index);
@@ -671,22 +672,6 @@ impl<E> ArrayParseResult<E> {
             match element {
                 ArrayElements::Word(e) => res.push(e),
                 ArrayElements::Zero(size) => res.extend(vec![zero.clone(); size]),
-            }
-        }
-        res
-    }
-
-    /// Filter the zero array elements, return with the elements and its index in the array
-    pub fn filter(self) -> Vec<(E, usize)> {
-        let mut cursor = 0;
-        let mut res = vec![];
-        for element in self.elements {
-            match element {
-                ArrayElements::Word(e) => {
-                    res.push((e, cursor));
-                    cursor += 1;
-                }
-                ArrayElements::Zero(size) => cursor += size,
             }
         }
         res

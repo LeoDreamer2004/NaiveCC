@@ -1,9 +1,9 @@
-use super::register::RiscVRegister;
+use super::register::Register;
 
 pub type AsmProgram = Vec<Inst>;
 pub type Label = String;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum Inst {
     Nop,
@@ -83,13 +83,13 @@ impl Inst {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Directive {
     Text,
     Data,
     Globl(String),
     Zero(usize),
-    Word(Immediate),
+    Word(Imm32),
 }
 
 impl Directive {
@@ -104,120 +104,121 @@ impl Directive {
     }
 }
 
-pub type Immediate = i32;
+pub type Imm32 = i32;
+pub type Imm12 = i32;
 
 /// **Beqz(rs, label)**: go to the label if rs is zero.
-#[derive(Debug, Default)]
-pub struct Beqz(pub RiscVRegister, pub Label);
+#[derive(Debug, Default, Clone)]
+pub struct Beqz(pub Register, pub Label);
 
 /// **Bnez(rs, label)**: go to the label if rs is not zero.
-#[derive(Debug, Default)]
-pub struct Bnez(pub RiscVRegister, pub Label);
+#[derive(Debug, Default, Clone)]
+pub struct Bnez(pub Register, pub Label);
 
 /// **J(label)**: jump to the label.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct J(pub Label);
 
 /// **Call(label)**: call the function.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Call(pub Label);
 
 /// **Ret**: return from the function.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Ret;
 
 /// **Lw(rd, rs, offset)**: load the memory at rs + offset to rd.
-#[derive(Debug, Default)]
-pub struct Lw(pub RiscVRegister, pub RiscVRegister, pub Immediate);
+#[derive(Debug, Default, Clone)]
+pub struct Lw(pub Register, pub Register, pub Imm12);
 
 /// **Sw(rs2, rs1, offset)**: store the value of rs2 to rs1 + offset.
-#[derive(Debug, Default)]
-pub struct Sw(pub RiscVRegister, pub RiscVRegister, pub Immediate);
+#[derive(Debug, Default, Clone)]
+pub struct Sw(pub Register, pub Register, pub Imm12);
 
 /// **Add(rd, rs1, rs2)**: add rs1 and rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Add(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Add(pub Register, pub Register, pub Register);
 
 /// **Addi(rd, rs, imm)**: add rs and imm, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Addi(pub RiscVRegister, pub RiscVRegister, pub Immediate);
+#[derive(Debug, Default, Clone)]
+pub struct Addi(pub Register, pub Register, pub Imm12);
 
 /// **Sub(rd, rs1, rs2)**: subtract rs2 from rs1, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Sub(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Sub(pub Register, pub Register, pub Register);
 
 /// **Slt(rd, rs1, rs2)**: compare if rs1 is less than rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Slt(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Slt(pub Register, pub Register, pub Register);
 
 /// **Sgt(rd, rs1, rs2)**: compare if rs1 is greater than rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Sgt(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Sgt(pub Register, pub Register, pub Register);
 
 /// **SeqZ(rd, rs)**: Judge if rs is zero, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct SeqZ(pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct SeqZ(pub Register, pub Register);
 
 /// **SneZ(rd, rs)**: Judge if rs is not zero, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct SneZ(pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct SneZ(pub Register, pub Register);
 
 /// **Xor(rd, rs1, rs2)**: calculate the bitwise xor of rs1 and rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Xor(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Xor(pub Register, pub Register, pub Register);
 
 /// **Xori(rd, rs, imm)**: calculate the bitwise xor of rs and imm, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Xori(pub RiscVRegister, pub RiscVRegister, pub Immediate);
+#[derive(Debug, Default, Clone)]
+pub struct Xori(pub Register, pub Register, pub Imm12);
 
 /// **Or(rd, rs1, rs2)**: calculate the bitwise or of rs1 and rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Or(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Or(pub Register, pub Register, pub Register);
 
 /// **Ori(rd, rs, imm)**: calculate the bitwise or of rs and imm, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Ori(pub RiscVRegister, pub RiscVRegister, pub Immediate);
+#[derive(Debug, Default, Clone)]
+pub struct Ori(pub Register, pub Register, pub Imm12);
 
 /// **And(rd, rs1, rs2)**: calculate the bitwise and of rs1 and rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct And(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct And(pub Register, pub Register, pub Register);
 
 /// **Andi(rd, rs, imm)**: calculate the bitwise and of rs and imm, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Andi(pub RiscVRegister, pub RiscVRegister, pub Immediate);
+#[derive(Debug, Default, Clone)]
+pub struct Andi(pub Register, pub Register, pub Imm12);
 
 /// **Sll(rd, rs1, rs2)**: shift left logical rs1 by rs2 bits, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Sll(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Sll(pub Register, pub Register, pub Register);
 
 /// **Srl(rd, rs1, rs2)**: shift right logical rs1 by rs2 bits, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Srl(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Srl(pub Register, pub Register, pub Register);
 
 /// **Sra(rd, rs1, rs2)**: shift right arithmetic rs1 by rs2 bits, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Sra(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Sra(pub Register, pub Register, pub Register);
 
 /// **Mul(rd, rs1, rs2)**: multiply rs1 by rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Mul(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Mul(pub Register, pub Register, pub Register);
 
 /// **Div(rd, rs1, rs2)**: divide rs1 by rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Div(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Div(pub Register, pub Register, pub Register);
 
 /// **Rem(rd, rs1, rs2)**: calculate the remainder of rs1 divided by rs2, and store the result to rd.
-#[derive(Debug, Default)]
-pub struct Rem(pub RiscVRegister, pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Rem(pub Register, pub Register, pub Register);
 
 /// **Li(rd, imm)**: load the immediate value to rd.
-#[derive(Debug, Default)]
-pub struct Li(pub RiscVRegister, pub Immediate);
+#[derive(Debug, Default, Clone)]
+pub struct Li(pub Register, pub Imm32);
 
 /// **La(rd, label)**: load the address of label to rd.
-#[derive(Debug, Default)]
-pub struct La(pub RiscVRegister, pub Label);
+#[derive(Debug, Default, Clone)]
+pub struct La(pub Register, pub Label);
 
 /// **Mv(rd, rs)**: move the value of rs to rd.
-#[derive(Debug, Default)]
-pub struct Mv(pub RiscVRegister, pub RiscVRegister);
+#[derive(Debug, Default, Clone)]
+pub struct Mv(pub Register, pub Register);
