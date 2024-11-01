@@ -81,11 +81,10 @@ fn _main(args: CommandLineArgs) -> Result<(), Error> {
 
     match args.mode {
         Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,
-        Mode::RiscV => {
+        _ => {
             let program = backend::build_asm(program).map_err(Error::Asm)?;
             emit_asm(program, output).map_err(Error::Io)?
         }
-        Mode::Perf => todo!(),
     }
     Ok(())
 }
