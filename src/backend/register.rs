@@ -76,7 +76,7 @@ pub const ANY_REG: Register = &RiscVRegister { name: "any" };
 impl RegisterType {
     pub const ARGU_REGISTERS: [Register; 8] = [A0, A1, A2, A3, A4, A5, A6, A7];
     pub const SAVED_REGISTERS: [Register; 11] = [S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11];
-    pub const TEMP_REGISTERS: [Register; 14] = [A0, A1, A2, A3, A4, A5, A6, A7, T1, T2, T3, T4, T5, T6];
+    pub const TEMP_REGISTERS: [Register; 6] = [T1, T2, T3, T4, T5, T6];
 
     pub fn all(&self) -> Vec<Register> {
         match self {
