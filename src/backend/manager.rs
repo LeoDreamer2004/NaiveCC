@@ -19,15 +19,11 @@ pub struct AsmManager {
 #[derive(Debug, Clone)]
 pub struct RegPack {
     pub reg: Register,
-    pub data: Storage,
 }
 
 impl RegPack {
     pub fn new(reg: Register) -> Self {
-        Self {
-            reg,
-            data: Storage::Empty,
-        }
+        Self { reg }
     }
 }
 
@@ -35,26 +31,6 @@ impl RegPack {
 pub struct PointerInfo {
     /// where the data is stored
     location: Location,
-    /// what the pointer refers to
-    data: Storage,
-}
-
-#[derive(Debug, Clone)]
-pub enum Storage {
-    Empty,
-    Data,
-    Location(Location),
-}
-
-impl PartialEq for Storage {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Storage::Empty, Storage::Empty) => true,
-            (Storage::Location(a), Storage::Location(b)) => a == b,
-            // for computer, we don't care about the data in the register
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,13 +98,7 @@ impl AsmManager {
     }
 
     fn add_location(&mut self, ptr: Pointer, location: Location) {
-        self.map.insert(
-            ptr,
-            PointerInfo {
-                location,
-                data: Storage::Empty,
-            },
-        );
+        self.map.insert(ptr, PointerInfo { location });
     }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
@@ -140,15 +110,24 @@ impl AsmManager {
         // Always save the data in the stack.
         // TODO: Malloc or Register? That's a question
         let address = self.malloc(INT_SIZE)?;
+        // let address = self.ralloc()?;
         self.add_location(ptr, address);
         Ok(())
     }
 
+    pub fn require(&mut self) -> Register {
+        if let Some(reg) = self.dpt.dispatch(RegisterType::Temp) {
+            reg
+        } else {
+            todo!()
+        }
+    }
+
     /// Allocate register for the data.
     pub fn ralloc(&mut self) -> Result<Location, AsmError> {
-        // let reg = self.dpt.dispatch(RegisterType::Temp);
-        // let address = Location::Register(reg);
-        todo!()
+        let reg = self.require();
+        let address = Location::Register(reg);
+        Ok(address)
     }
 
     /// Allocate memory.
@@ -173,7 +152,6 @@ impl AsmManager {
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         let info = self.info_mut(dest)?;
-        info.data = src.data.clone();
 
         let src = src.reg;
         match &info.location.clone() {
@@ -201,7 +179,7 @@ impl AsmManager {
 
     fn true_reg(&mut self, reg: Register) -> Register {
         if reg == ANY_REG {
-            self.dpt.dispatch(RegisterType::Temp)
+            self.require()
         } else {
             reg
         }
@@ -214,7 +192,6 @@ impl AsmManager {
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         // We never reuse immediate, only load it to the register.
-        dest.data = Storage::Data;
         let dest_reg = dest.reg;
         if dest_reg == ANY_REG && imm == 0 {
             dest.reg = ZERO;
@@ -233,7 +210,6 @@ impl AsmManager {
         dest: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        dest.data = Storage::Location(location.clone());
         let dest = dest.reg;
         self.dpt.occupy(dest);
         match location {
@@ -254,13 +230,11 @@ impl AsmManager {
     /// Load the data from the address of the src to the register.
     pub fn load_deref_to(&mut self, src: &RegPack, dest: &mut RegPack, asm: &mut AsmProgram) {
         asm.push(Inst::Lw(Lw(dest.reg, src.reg, 0)));
-        dest.data = Storage::Data;
     }
 
     /// Save the data in the register to the address of the dest.
     pub fn save_deref_to(&mut self, src: &RegPack, dest: &mut RegPack, asm: &mut AsmProgram) {
         asm.push(Inst::Sw(Sw(src.reg, dest.reg, 0)));
-        dest.data = Storage::Data;
     }
 
     pub fn add_bias(
@@ -301,7 +275,6 @@ impl AsmManager {
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         let location = self.info(src)?.location.clone();
-        dest.data = Storage::Location(location.clone());
 
         let dest_reg = dest.reg;
         let is_none = dest_reg == ANY_REG;
@@ -353,7 +326,10 @@ impl AsmManager {
 
     pub fn load_func_param(&mut self, index: usize, param: Pointer) -> Result<(), AsmError> {
         let location = match Self::param_location(index) {
-            Location::Register(reg) => Location::Register(reg),
+            Location::Register(reg) => {
+                self.dpt.release(reg);
+                Location::Register(reg)
+            }
             Location::Stack(stack) => {
                 // the params are in the stack of the caller
                 let offset = stack.offset;
@@ -376,6 +352,7 @@ impl AsmManager {
         match Self::param_location(index) {
             Location::Register(reg) => {
                 self.load_to(&e, &mut RegPack::new(reg), asm)?;
+                self.dpt.occupy(reg);
             }
             Location::Stack(stack) => {
                 self.load_to(&e, &mut RegPack::new(FREE_REG), asm)?;

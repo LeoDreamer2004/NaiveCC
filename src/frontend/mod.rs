@@ -5,6 +5,7 @@ mod context;
 mod eval;
 mod generate;
 mod loops;
+mod opt;
 mod symbol;
 mod transform;
 

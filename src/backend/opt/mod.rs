@@ -1,11 +1,13 @@
 use super::instruction::AsmProgram;
-mod immfix;
-mod helper;
 mod algorithm;
-
+mod helper;
+mod immfix;
+mod peephole;
 use helper::AsmHelper;
-pub use immfix::ImmFixOptimizer;
-pub use algorithm::AlgorithmOptimizer;
+
+use algorithm::AlgorithmOptimizer;
+use immfix::ImmFixOptimizer;
+use peephole::PeepholeOptimizer;
 
 pub struct AsmOptimizeManager {
     optimizers: Vec<Box<dyn Optimizer>>,
@@ -20,6 +22,14 @@ impl AsmOptimizeManager {
         Self {
             optimizers: Vec::new(),
         }
+    }
+
+    pub fn default() -> Self {
+        let mut manager = AsmOptimizeManager::new();
+        manager.add(Box::new(PeepholeOptimizer::new()));
+        manager.add(Box::new(ImmFixOptimizer::new()));
+        manager.add(Box::new(AlgorithmOptimizer::new()));
+        manager
     }
 
     pub fn add(&mut self, opt: Box<dyn Optimizer>) {

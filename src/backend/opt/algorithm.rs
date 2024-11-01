@@ -1,5 +1,5 @@
 use super::{AsmHelper, Optimizer};
-use crate::backend::{instruction::*, is_imm12, register::Register};
+use crate::backend::{instruction::*, is_imm12};
 
 pub struct AlgorithmOptimizer {}
 
@@ -30,12 +30,13 @@ impl Optimizer for AlgorithmOptimizer {
 
         let mut remove_next = false;
         while !csr.end() {
+            csr.next();
             if remove_next {
                 csr.remove_cur();
                 remove_next = false;
             }
-            csr.next();
             if csr.peek(1).is_none() {
+                csr.next();
                 break;
             }
             let next = csr.peek(1).unwrap();
@@ -82,13 +83,13 @@ impl Optimizer for AlgorithmOptimizer {
         let mut csr = helper.new_cursor();
         while !csr.end() {
             match csr.current() {
-                Inst::Addi(Addi(_, _, imm)) => {
-                    if *imm == 0 {
+                Inst::Addi(Addi(rs1, rs2, imm)) => {
+                    if *imm == 0 && rs1 == rs2 {
                         csr.remove_cur();
                     }
                 }
-                Inst::Ori(Ori(_, _, imm)) => {
-                    if *imm == 0 {
+                Inst::Ori(Ori(rs1, rs2, imm)) => {
+                    if *imm == 0 && rs1 == rs2 {
                         csr.remove_cur();
                     }
                 }

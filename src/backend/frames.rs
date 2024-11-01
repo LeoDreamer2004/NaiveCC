@@ -6,7 +6,7 @@ use std::cmp::max;
 use std::collections::LinkedList;
 
 #[derive(Debug, Default)]
-pub(super) struct Frame {
+pub struct Frame {
     pub var_size: usize,
     pub has_call: bool,
     pub param_bias: usize,

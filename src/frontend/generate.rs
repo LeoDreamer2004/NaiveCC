@@ -5,20 +5,27 @@ use super::builtin::set_up_builtins;
 use super::context::Context;
 use super::eval::Eval;
 use super::loops::*;
+use super::opt::*;
 use super::symbol::*;
 use crate::utils::namer::{global_ident, normal_ident};
 use koopa::back::KoopaGenerator;
-use koopa::ir::builder::LocalInstBuilder;
-use koopa::ir::builder::ValueBuilder;
+use koopa::ir::builder::*;
 use koopa::ir::Type;
 use koopa::ir::TypeKind;
 use koopa::ir::{BinaryOp, FunctionData, Program, Value};
+use koopa::opt::{Pass, PassManager};
 use std::io;
 
 pub fn build_ir(ast: CompUnit) -> Result<Program, AstError> {
     let mut context = Context::default();
     ast.generate_on(&mut context)?;
-    Ok(context.program)
+    let mut program = context.program;
+
+    let mut passman = PassManager::new();
+    passman.register(Pass::Function(Box::new(DeadBlockCodeElimination::new())));
+    // passman.register(Pass::Function(Box::new(DeadValueCodeElimination::new())));
+    passman.run_passes(&mut program);
+    Ok(program)
 }
 
 pub fn emit_ir(program: &mut Program, output: impl io::Write) -> Result<(), io::Error> {
@@ -191,7 +198,7 @@ impl GenerateIr<Value> for LVal {
                     let mut indexes = vec![];
                     for exp in &self.array_index {
                         indexes.push(exp.generate_on(context)?);
-                    }                    
+                    }
                     let addr = symbol.index(&indexes, context)?;
                     Ok(addr)
                 }

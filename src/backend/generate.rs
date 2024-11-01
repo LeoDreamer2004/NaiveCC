@@ -1,71 +1,32 @@
+use super::env::{Environment, IntoElement};
 use super::instruction::*;
-use super::manager::{AsmElement, AsmManager, Pointer, RegPack};
-use super::opt::*;
-use super::register::{self, RegisterType, ANY_REG};
+use super::manager::RegPack;
+use super::opt::AsmOptimizeManager;
+use super::register;
 use super::INT_SIZE;
-use crate::utils::namer::{original_ident, NameGenerator};
+use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
-use koopa::ir::{
-    BasicBlock, BinaryOp, Function, FunctionData, Program, Type, TypeKind, Value, ValueKind,
-};
+use koopa::ir::{BinaryOp, Function, FunctionData, Program, TypeKind, ValueKind};
 use std::cell::Ref;
 use std::io::Write;
 
-pub struct Context<'a> {
-    pub manager: AsmManager,
-    pub label_gen: NameGenerator<BasicBlock>,
+pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
+    // generate
+    let mut asm = AsmProgram::new();
+    let mut env = Environment::new(&program, &mut asm);
+    program.generate_on(&mut env)?;
 
-    pub program: &'a Program,
-    pub function: Option<Function>,
-    pub value: Option<Value>,
+    // optimization
+    let mut optman = AsmOptimizeManager::default();
+    asm = optman.run(asm);
+    Ok(asm)
 }
 
-impl<'a> Context<'a> {
-    pub fn new(program: &'a Program) -> Self {
-        Context {
-            manager: AsmManager::default(),
-            label_gen: NameGenerator::new(|id| format!(".l{}", id)),
-
-            program,
-            function: None,
-            value: None,
-        }
+pub fn emit_asm(program: AsmProgram, mut output: impl Write) -> Result<(), std::io::Error> {
+    for inst in program {
+        writeln!(output, "{}", inst.dump())?;
     }
-
-    pub fn func_data(&self) -> &FunctionData {
-        self.program.func(self.function.unwrap())
-    }
-
-    pub fn local_data(&self, value: Value) -> &ValueData {
-        self.func_data().dfg().value(value)
-    }
-
-    pub fn global_data(&self, value: Value) -> Ref<ValueData> {
-        self.program.borrow_value(value)
-    }
-
-    pub fn value_type(&self, value: Value) -> Type {
-        let v = self.func_data().dfg().values().get(&value);
-        match v {
-            Some(v) => v.ty().clone(),
-            None => self.global_data(value).ty().clone(),
-        }
-    }
-
-    pub fn to_ptr(&self, value: Value) -> Pointer {
-        if value.is_global() {
-            &*self.global_data(value)
-        } else {
-            self.local_data(value)
-        }
-    }
-
-    pub fn new_pack(&mut self, value: Value, asm: &mut AsmProgram) -> Result<RegPack, AsmError> {
-        let e = value.into_element(self);
-        let mut pack = RegPack::new(ANY_REG);
-        self.manager.load_to(&e, &mut pack, asm)?;
-        Ok(pack)
-    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -77,33 +38,41 @@ pub enum AsmError {
     StackOverflow,
 }
 
+/// Trait for generating assembly code.
+///
+/// This trait is implemented by all the IR entities that can be translated into assembly code.
 pub trait GenerateAsm {
-    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError>;
+    /// Generate assembly code for the entity.
+    ///
+    /// # Errors
+    /// AsmError is returned if the generation fails.
+    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError>;
 }
 
 impl GenerateAsm for Program {
-    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
         for &g_value in self.inst_layout() {
-            asm.push(Inst::Directive(Directive::Data));
+            env.asm.push(Inst::Directive(Directive::Data));
             let g_data = self.borrow_value(g_value);
             let label = g_data.name().clone().unwrap()[1..].to_string();
-            asm.push(Inst::Directive(Directive::Globl(label.clone())));
-            asm.push(Inst::Label(label.clone()));
+            env.asm
+                .push(Inst::Directive(Directive::Globl(label.clone())));
+            env.asm.push(Inst::Label(label.clone()));
 
             if let ValueKind::GlobalAlloc(alloc) = g_data.kind() {
                 let data = self.borrow_value(alloc.init());
-                generate_global_data(data, context.program, asm);
+                generate_global_data(data, env.ctx.program, env.asm);
             }
 
-            context.manager.global_new(&*g_data, label);
+            env.man.global_new(&*g_data, label);
         }
 
         for &func in self.func_layout() {
-            context.function = Some(func);
+            env.ctx.function = Some(func);
             let func_data = self.func(func);
             // skip declaration
             if !func_data.layout().entry_bb().is_none() {
-                func_data.generate_on(context, asm)?;
+                func_data.generate_on(env)?;
             }
         }
         Ok(())
@@ -135,33 +104,33 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmPr
 }
 
 impl GenerateAsm for FunctionData {
-    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
-        asm.push(Inst::Directive(Directive::Text));
+    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
+        env.asm.push(Inst::Directive(Directive::Text));
         let label = original_ident(&self.name().to_string());
-        asm.push(Inst::Directive(Directive::Globl(label.clone())));
-        asm.push(Inst::Label(label));
-        context.manager.fh().new_frame(self, asm);
+        env.asm
+            .push(Inst::Directive(Directive::Globl(label.clone())));
+        env.asm.push(Inst::Label(label));
+        env.man.fh().new_frame(self, env.asm);
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
-            let param = context.to_ptr(p);
-            context.manager.load_func_param(index, param)?;
+            let param = env.ctx.to_ptr(p);
+            env.man.load_func_param(index, param)?;
         }
 
         for (&bb, node) in self.layout().bbs() {
-            asm.push(Inst::Label(context.label_gen.get_name(bb)));
+            env.asm.push(Inst::Label(env.label_gen.get_name(bb)));
             for &inst in node.insts().keys() {
-                context.value = Some(inst);
-                self.dfg().value(inst).generate_on(context, asm)?;
+                self.dfg().value(inst).generate_on(env)?;
             }
         }
-        context.manager.fh().end_frame(asm)?;
+        env.man.fh().end_frame(env.asm)?;
         Ok(())
     }
 }
 
 impl GenerateAsm for ValueData {
-    fn generate_on(&self, context: &mut Context, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
         match self.kind() {
             ValueKind::Integer(_) => {
                 unreachable!("Integer is not an instruction in KoopaIR");
@@ -172,32 +141,32 @@ impl GenerateAsm for ValueData {
                     _ => unreachable!("Alloc type should always be a pointer"),
                 };
                 // malloc the data
-                let location = context.manager.malloc(size)?;
+                let location = env.man.malloc(size)?;
                 // new value "self" as a pointer
-                let reg = context.manager.dpt().dispatch(RegisterType::Temp);
+                let reg = env.man.require();
                 let mut pack = RegPack::new(reg);
-                context.manager.load_ref_to(location, &mut pack, asm)?;
-                context.manager.new_val(self)?;
-                context.manager.save_val_to(self, &mut pack, asm)?;
-                context.manager.dpt().release(reg);
+                env.man.load_ref_to(location, &mut pack, env.asm)?;
+                env.man.new_val(self)?;
+                env.man.save_val_to(self, &mut pack, env.asm)?;
+                env.man.dpt().release(reg);
             }
             ValueKind::Store(store) => {
-                let mut src = context.new_pack(store.value(), asm)?;
-                let mut dest = context.new_pack(store.dest(), asm)?;
-                context.manager.save_deref_to(&mut src, &mut dest, asm);
-                context.manager.dpt().release(src.reg);
-                context.manager.dpt().release(dest.reg);
+                let mut src = env.new_pack(store.value())?;
+                let mut dest = env.new_pack(store.dest())?;
+                env.man.save_deref_to(&mut src, &mut dest, env.asm);
+                env.man.dpt().release(src.reg);
+                env.man.dpt().release(dest.reg);
             }
             ValueKind::Load(load) => {
-                let mut pack = context.new_pack(load.src(), asm)?;
-                context.manager.load_deref_to(&pack.clone(), &mut pack, asm);
-                context.manager.new_val(self)?;
-                context.manager.save_val_to(self, &mut pack, asm)?;
+                let mut pack = env.new_pack(load.src())?;
+                env.man.load_deref_to(&pack.clone(), &mut pack, env.asm);
+                env.man.new_val(self)?;
+                env.man.save_val_to(self, &mut pack, env.asm)?;
             }
             ValueKind::Binary(binary) => {
-                let rs1 = context.new_pack(binary.lhs(), asm)?.reg;
-                let rs2 = context.new_pack(binary.rhs(), asm)?.reg;
-                let rd = context.manager.dpt().dispatch(RegisterType::Temp);
+                let rs1 = env.new_pack(binary.lhs())?.reg;
+                let rs2 = env.new_pack(binary.rhs())?.reg;
+                let rd = env.man.require();
                 let insts = match binary.op() {
                     BinaryOp::Add => vec![Inst::Add(Add(rd, rs1, rs2))],
                     BinaryOp::Sub => vec![Inst::Sub(Sub(rd, rs1, rs2))],
@@ -234,47 +203,45 @@ impl GenerateAsm for ValueData {
                         Inst::SeqZ(SeqZ(rd, rd)),
                     ],
                 };
-                asm.extend(insts);
+                env.asm.extend(insts);
 
-                context.manager.new_val(self)?;
-                context
-                    .manager
-                    .save_val_to(self, &mut RegPack::new(rd), asm)?;
+                env.man.new_val(self)?;
+                env.man.save_val_to(self, &mut RegPack::new(rd), env.asm)?;
 
-                context.manager.dpt().release(rs1);
-                context.manager.dpt().release(rs2);
+                env.man.dpt().release(rs1);
+                env.man.dpt().release(rs2);
             }
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
-                    let e = value.into_element(context);
-                    context
-                        .manager
-                        .load_to(&e, &mut RegPack::new(register::A0), asm)?;
+                    let e = value.into_element(&env.ctx);
+                    env.man
+                        .load_to(&e, &mut RegPack::new(register::A0), env.asm)?;
                 }
-                context.manager.fh().out_frame(asm)?;
-                asm.push(Inst::Ret(Ret));
+                env.man.fh().out_frame(env.asm)?;
+                env.asm.push(Inst::Ret(Ret));
             }
             ValueKind::Jump(jump) => {
                 let label = jump.target();
-                asm.push(Inst::J(J(context.label_gen.get_name(label))));
+                env.asm.push(Inst::J(J(env.label_gen.get_name(label))));
             }
             ValueKind::Branch(branch) => {
-                let rs = context.new_pack(branch.cond(), asm)?.reg;
+                let rs = env.new_pack(branch.cond())?.reg;
                 let true_bb = branch.true_bb();
-                asm.push(Inst::Bnez(Bnez(rs, context.label_gen.get_name(true_bb))));
+                env.asm
+                    .push(Inst::Bnez(Bnez(rs, env.label_gen.get_name(true_bb))));
                 let false_bb = branch.false_bb();
-                asm.push(Inst::J(J(context.label_gen.get_name(false_bb))));
-                context.manager.dpt().release(rs);
+                env.asm.push(Inst::J(J(env.label_gen.get_name(false_bb))));
+                env.man.dpt().release(rs);
             }
             ValueKind::Call(call) => {
                 for (index, &p) in call.args().iter().enumerate() {
-                    let param = context.to_ptr(p);
-                    context.manager.save_func_param(index, param, asm)?;
+                    let param = env.ctx.to_ptr(p);
+                    env.man.save_func_param(index, param, env.asm)?;
                 }
-                let func_data = context.program.func(call.callee());
+                let func_data = env.ctx.program.func(call.callee());
                 let ident = original_ident(&func_data.name().to_string());
-                asm.push(Inst::Call(Call(ident)));
-                context.manager.new_val(self)?;
+                env.asm.push(Inst::Call(Call(ident)));
+                env.man.new_val(self)?;
 
                 let is_unit = match func_data.ty().kind() {
                     TypeKind::Function(_, ret) => ret.is_unit(),
@@ -282,14 +249,14 @@ impl GenerateAsm for ValueData {
                 };
                 if !is_unit {
                     let mut pack = RegPack::new(register::A0);
-                    context.manager.save_val_to(self, &mut pack, asm)?;
+                    env.man.save_val_to(self, &mut pack, env.asm)?;
                 }
             }
             ValueKind::GetElemPtr(ptr) => {
-                let value = context.func_data().dfg().values().get(&ptr.src());
+                let value = env.ctx.func_data().dfg().values().get(&ptr.src());
                 let ty = match value {
                     Some(v) => v.ty().clone(),
-                    None => context.program.borrow_value(ptr.src()).ty().clone(),
+                    None => env.ctx.program.borrow_value(ptr.src()).ty().clone(),
                 };
                 let size = match ty.kind() {
                     TypeKind::Pointer(p) => match p.kind() {
@@ -298,57 +265,27 @@ impl GenerateAsm for ValueData {
                     },
                     _ => unreachable!("GetElemPtr source should always be a pointer"),
                 };
-                let mut pack = context.new_pack(ptr.src(), asm)?;
-                let bias = &ptr.index().into_element(context);
-                context.manager.add_bias(&mut pack, bias, size, asm)?;
-                context.manager.new_val(self)?;
-                context.manager.save_val_to(self, &mut pack, asm)?;
+                let mut pack = env.new_pack(ptr.src())?;
+                let bias = &ptr.index().into_element(&env.ctx);
+                env.man.add_bias(&mut pack, bias, size, env.asm)?;
+                env.man.new_val(self)?;
+                env.man.save_val_to(self, &mut pack, env.asm)?;
             }
             ValueKind::GetPtr(ptr) => {
-                let ty = context.value_type(ptr.src());
+                let ty = env.ctx.value_type(ptr.src());
                 let size = match ty.kind() {
                     TypeKind::Pointer(p) => p.size(),
                     _ => unreachable!("GetElemPtr source should always be a pointer"),
                 };
-                let mut pack = context.new_pack(ptr.src(), asm)?;
-                let bias = &ptr.index().into_element(context);
-                context.manager.add_bias(&mut pack, bias, size, asm)?;
-                context.manager.new_val(self)?;
-                context.manager.save_val_to(self, &mut pack, asm)?;
-                // context.manager.mark_as_ptr(self);
+                let mut pack = env.new_pack(ptr.src())?;
+                let bias = &ptr.index().into_element(&env.ctx);
+                env.man.add_bias(&mut pack, bias, size, env.asm)?;
+                env.man.new_val(self)?;
+                env.man.save_val_to(self, &mut pack, env.asm)?;
+                // env.manager.mark_as_ptr(self);
             }
             _ => unimplemented!(),
         }
         Ok(())
     }
-}
-
-trait IntoElement {
-    fn into_element(self, context: &Context) -> AsmElement;
-}
-
-impl IntoElement for Value {
-    fn into_element(self, context: &Context) -> AsmElement {
-        let data = context.to_ptr(self);
-        AsmElement::from(data)
-    }
-}
-
-pub fn build_asm(ir_program: Program) -> Result<AsmProgram, AsmError> {
-    let mut asm = AsmProgram::new();
-    let mut context = Context::new(&ir_program);
-    ir_program.generate_on(&mut context, &mut asm)?;
-
-    let mut optman = AsmOptimizeManager::new();
-    optman.add(Box::new(ImmFixOptimizer::new()));
-    optman.add(Box::new(AlgorithmOptimizer::new()));
-    asm = optman.run(asm);
-    Ok(asm)
-}
-
-pub fn emit_asm(program: AsmProgram, mut output: impl Write) -> Result<(), std::io::Error> {
-    for inst in program {
-        writeln!(output, "{}", inst.dump())?;
-    }
-    Ok(())
 }

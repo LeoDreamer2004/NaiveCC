@@ -76,7 +76,7 @@ pub const ANY_REG: Register = &RiscVRegister { name: "any" };
 impl RegisterType {
     pub const ARGU_REGISTERS: [Register; 8] = [A0, A1, A2, A3, A4, A5, A6, A7];
     pub const SAVED_REGISTERS: [Register; 11] = [S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11];
-    pub const TEMP_REGISTERS: [Register; 6] = [T1, T2, T3, T4, T5, T6];
+    pub const TEMP_REGISTERS: [Register; 14] = [A0, A1, A2, A3, A4, A5, A6, A7, T1, T2, T3, T4, T5, T6];
 
     pub fn all(&self) -> Vec<Register> {
         match self {
@@ -93,13 +93,13 @@ pub struct RegisterDispatcher {
 
 impl RegisterDispatcher {
     /// Ask for a register for the data.
-    pub fn ask(&self, r_type: RegisterType) -> Register {
+    pub fn ask(&self, r_type: RegisterType) -> Option<Register> {
         for reg in r_type.all() {
             if self.askfor(reg) {
-                return reg;
+                return Some(reg);
             }
         }
-        todo!()
+        None
     }
 
     /// Ask if the register is available.
@@ -118,9 +118,11 @@ impl RegisterDispatcher {
     }
 
     /// Ask, occupy and return the register.
-    pub fn dispatch(&mut self, r_type: RegisterType) -> Register {
+    pub fn dispatch(&mut self, r_type: RegisterType) -> Option<Register> {
         let reg = self.ask(r_type);
-        self.occupy(reg);
+        if let Some(r) = reg {
+            self.occupy(r);
+        }
         reg
     }
 }
