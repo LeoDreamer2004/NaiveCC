@@ -24,7 +24,7 @@ pub fn build_ir(ast: CompUnit) -> Result<Program, AstError> {
     let mut passman = PassManager::new();
     passman.register(Pass::Function(Box::new(DeadBlockElimination::default())));
     passman.register(Pass::Function(Box::new(ConstantsInline::default())));
-    passman.register(Pass::Function(Box::new(DeadCodeElimination::default())));
+    // passman.register(Pass::Function(Box::new(DeadCodeElimination::default())));
     passman.run_passes(&mut program);
     Ok(program)
 }
