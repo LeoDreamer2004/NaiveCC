@@ -231,8 +231,10 @@ impl Symbol for VarSymbol {
         init: &Option<Init>,
         context: &mut Context,
     ) -> Result<(), AstError> {
+        let mut has_init = false;
         let init = match init {
             Some(Init::Var(symbol)) => {
+                has_init = true;
                 if context.is_global() {
                     let int = symbol.as_element()?.eval(&context.syb_table)?;
                     context.glb_new_value().integer(int)
@@ -246,7 +248,13 @@ impl Symbol for VarSymbol {
         let alloc = if context.is_global() {
             context.glb_new_value().global_alloc(init)
         } else {
-            context.alloc_and_store(init, ty.clone())
+            let alloc = context.new_value().alloc(ty.clone());
+            context.add_inst(alloc);
+            if has_init {
+                let store = context.new_value().store(init, alloc);
+                context.add_inst(store);
+            }
+            alloc
         };
         context.syb_table.set_alloc(self.ident(), alloc)?;
         context.set_value_name(alloc, normal_ident(self.ident()));

@@ -282,7 +282,6 @@ impl GenerateAsm for ValueData {
                 env.man.add_bias(&mut pack, bias, size, env.asm)?;
                 env.man.new_val(self)?;
                 env.man.save_val_to(self, &mut pack, env.asm)?;
-                // env.manager.mark_as_ptr(self);
             }
             _ => unimplemented!(),
         }

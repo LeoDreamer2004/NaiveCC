@@ -3,12 +3,13 @@ use koopa::opt::FunctionPass;
 use std::collections::HashSet;
 
 /// Performs dead code elimination.
-pub struct DeadBlockCodeElimination {
+#[derive(Default)]
+pub struct DeadBlockElimination {
     worklist: Vec<BasicBlock>,
     liveset: HashSet<BasicBlock>,
 }
 
-impl FunctionPass for DeadBlockCodeElimination {
+impl FunctionPass for DeadBlockElimination {
     fn run_on(&mut self, _: Function, data: &mut FunctionData) {
         let mut changed = true;
         while changed {
@@ -18,14 +19,7 @@ impl FunctionPass for DeadBlockCodeElimination {
     }
 }
 
-impl DeadBlockCodeElimination {
-    pub fn new() -> Self {
-        Self {
-            worklist: Vec::new(),
-            liveset: HashSet::new(),
-        }
-    }
-
+impl DeadBlockElimination {
     fn mark(&mut self, data: &mut FunctionData) {
         let entry = match data.layout().entry_bb() {
             Some(entry) => entry,

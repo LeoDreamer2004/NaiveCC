@@ -1,5 +1,5 @@
 //! # Compiler Principle
-//! This is a compiler for the SysY language, which is a subset of C language.
+//! This is a naive compiler for the SysY language, which is a subset of C language.
 //! The compiler is implemented in Rust, and it can generate RISC-V assembly code.
 //!
 //! Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024.git

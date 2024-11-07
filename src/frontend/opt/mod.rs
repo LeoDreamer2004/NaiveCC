@@ -1,3 +1,7 @@
+mod ci;
 mod dbe;
+mod dce;
 
-pub use dbe::DeadBlockCodeElimination;
+pub use ci::ConstantsInline;
+pub use dbe::DeadBlockElimination;
+pub use dce::DeadCodeElimination;
