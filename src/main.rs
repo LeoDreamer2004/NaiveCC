@@ -14,6 +14,7 @@ use std::process::exit;
 
 mod backend;
 mod frontend;
+mod opt;
 mod utils;
 
 lalrpop_mod!(sysy);
@@ -31,7 +32,7 @@ pub enum Error {
 
 fn main() {
     let args = parse_cmd_args().unwrap();
-    if args.local {
+    if args.debug {
         _main(args).unwrap();
     } else {
         _handin(args);
@@ -103,8 +104,9 @@ fn parse_cmd_args() -> Result<CommandLineArgs, Error> {
     args.next();
     cmd_args.output = match args.next() {
         Some(s) => {
-            if s.as_str() == "-local" {
-                cmd_args.local = true;
+            // just for local test
+            if s.as_str() == "-debug" {
+                cmd_args.debug = true;
                 None
             } else {
                 s.into()
@@ -120,7 +122,7 @@ struct CommandLineArgs {
     mode: Mode,
     input: String,
     output: Option<String>,
-    local: bool,
+    debug: bool,
 }
 
 #[derive(Debug, Default)]

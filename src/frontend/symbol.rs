@@ -1,7 +1,7 @@
 use crate::utils::namer::{global_ident, normal_ident};
 
 use super::ast::{ConstDef, ConstExp, ConstInitVal, Exp, FuncFParam, InitVal, VarDef};
-use super::context::Context;
+use super::env::Environment;
 use super::eval::Eval;
 use super::generate::GenerateIr;
 use super::AstError;
@@ -123,7 +123,7 @@ pub trait Symbol {
     /// # Error
     /// If the symbol has not been added to the symbol table
     /// or the symbol is not an array
-    fn index(&self, indexes: &Vec<Value>, context: &mut Context) -> Result<Value, AstError> {
+    fn index(&self, indexes: &Vec<Value>, env: &mut Environment) -> Result<Value, AstError> {
         if self.is_single() {
             return Err(AstError::TypeError("Not an array".to_string()));
         }
@@ -135,13 +135,13 @@ pub trait Symbol {
         }
         let mut ptr = self.get_alloc()?;
         for &index in indexes {
-            ptr = context.new_value().get_elem_ptr(ptr, index);
-            context.add_inst(ptr);
+            ptr = env.local_value().get_elem_ptr(ptr, index);
+            env.add_inst(ptr);
         }
         Ok(ptr)
     }
     /// Returns the type of the symbol
-    fn get_type(&self, ty: &Type) -> Result<Type, AstError> {
+    fn get_type(&self, ty: Type) -> Result<Type, AstError> {
         if self.is_single() {
             return Ok(ty.clone());
         }
@@ -152,7 +152,7 @@ pub trait Symbol {
         &self,
         ty: Type,
         init: &Option<Init>,
-        context: &mut Context,
+        env: &mut Environment,
     ) -> Result<(), AstError>;
 }
 
@@ -229,35 +229,35 @@ impl Symbol for VarSymbol {
         &self,
         ty: Type,
         init: &Option<Init>,
-        context: &mut Context,
+        env: &mut Environment,
     ) -> Result<(), AstError> {
         let mut has_init = false;
         let init = match init {
             Some(Init::Var(symbol)) => {
                 has_init = true;
-                if context.is_global() {
-                    let int = symbol.as_element()?.eval(&context.syb_table)?;
-                    context.glb_new_value().integer(int)
+                if env.is_global() {
+                    let int = symbol.as_element()?.eval(&env.syb_table)?;
+                    env.glb_value().integer(int)
                 } else {
-                    symbol.as_element()?.generate_on(context)?
+                    symbol.as_element()?.generate_on(env)?
                 }
             }
-            None => context.zero_init(ty.clone()),
+            None => env.zero_init(ty.clone()),
             _ => unreachable!(),
         };
-        let alloc = if context.is_global() {
-            context.glb_new_value().global_alloc(init)
+        let alloc = if env.is_global() {
+            env.glb_value().global_alloc(init)
         } else {
-            let alloc = context.new_value().alloc(ty.clone());
-            context.add_inst(alloc);
+            let alloc = env.local_value().alloc(ty.clone());
+            env.add_inst(alloc);
             if has_init {
-                let store = context.new_value().store(init, alloc);
-                context.add_inst(store);
+                let store = env.local_value().store(init, alloc);
+                env.add_inst(store);
             }
             alloc
         };
-        context.syb_table.set_alloc(self.ident(), alloc)?;
-        context.set_value_name(alloc, normal_ident(self.ident()));
+        env.syb_table.set_alloc(self.ident(), alloc)?;
+        env.set_value_name(alloc, normal_ident(self.ident()));
         Ok(())
     }
 }
@@ -291,7 +291,7 @@ impl Symbol for ConstSymbol {
         Err(AstError::TypeError("Not an array".to_string()))
     }
 
-    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Context) -> Result<(), AstError> {
+    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Environment) -> Result<(), AstError> {
         Ok(())
     }
 }
@@ -327,21 +327,21 @@ impl Symbol for VarArraySymbol {
         &self,
         ty: Type,
         init: &Option<Init>,
-        context: &mut Context,
+        env: &mut Environment,
     ) -> Result<(), AstError> {
         let bias = self.get_bias()?;
-        let arr_ty = gen_array_type(&ty, bias);
-        let alloc = if context.is_global() {
+        let arr_ty = gen_array_type(ty, bias);
+        let alloc = if env.is_global() {
             match init {
                 Some(Init::Var(init)) => {
                     let init = init
                         .parse(self.get_bias()?)?
-                        .map(|exp| exp.eval(&context.syb_table).unwrap());
-                    fill_global(init, bias, context)
+                        .map(|exp| exp.eval(&env.syb_table).unwrap());
+                    fill_global(init, bias, env)
                 }
                 None => {
-                    let value = context.glb_new_value().zero_init(arr_ty);
-                    context.glb_new_value().global_alloc(value)
+                    let value = env.glb_value().zero_init(arr_ty);
+                    env.glb_value().global_alloc(value)
                 }
                 _ => unreachable!(),
             }
@@ -350,19 +350,19 @@ impl Symbol for VarArraySymbol {
                 Some(Init::Var(init)) => {
                     let init = init
                         .parse(self.get_bias()?)?
-                        .map(|exp| exp.generate_on(context).unwrap());
-                    fill_local(init, self.get_bias()?, context)
+                        .map(|exp| exp.generate_on(env).unwrap());
+                    fill_local(init, self.get_bias()?, env)
                 }
                 None => {
-                    let alloc = context.new_value().alloc(arr_ty);
-                    context.add_inst(alloc);
+                    let alloc = env.local_value().alloc(arr_ty);
+                    env.add_inst(alloc);
                     alloc
                 }
                 _ => unreachable!(),
             }
         };
-        context.set_value_name(alloc, global_ident(self.ident()));
-        context.syb_table.set_alloc(self.ident(), alloc)?;
+        env.set_value_name(alloc, global_ident(self.ident()));
+        env.syb_table.set_alloc(self.ident(), alloc)?;
         Ok(())
     }
 }
@@ -398,23 +398,23 @@ impl Symbol for ConstArraySymbol {
         &self,
         _: Type,
         init: &Option<Init>,
-        context: &mut Context,
+        env: &mut Environment,
     ) -> Result<(), AstError> {
         let init = match init {
             Some(Init::Const(symbol)) => symbol
                 .parse(self.get_bias()?)?
-                .map(|exp| exp.eval(&context.syb_table).unwrap()),
+                .map(|exp| exp.eval(&env.syb_table).unwrap()),
             _ => unreachable!(),
         };
 
-        let alloc = if context.is_global() {
-            fill_global(init, self.get_bias()?, context)
+        let alloc = if env.is_global() {
+            fill_global(init, self.get_bias()?, env)
         } else {
-            let init = init.map(|&int| context.new_value().integer(int));
-            fill_local(init, self.get_bias()?, context)
+            let init = init.map(|&int| env.local_value().integer(int));
+            fill_local(init, self.get_bias()?, env)
         };
-        context.set_value_name(alloc, global_ident(self.ident()));
-        context.syb_table.set_alloc(self.ident(), alloc)?;
+        env.set_value_name(alloc, global_ident(self.ident()));
+        env.syb_table.set_alloc(self.ident(), alloc)?;
         Ok(())
     }
 }
@@ -446,12 +446,12 @@ impl Symbol for FParamArraySymbol {
         Ok(&self.ptr_bias)
     }
 
-    fn get_type(&self, ty: &Type) -> Result<Type, AstError> {
+    fn get_type(&self, ty: Type) -> Result<Type, AstError> {
         let mut bias = self.get_bias()?.clone();
         bias.remove(0);
         Ok(Type::get_pointer(gen_array_type(ty, &bias)))
     }
-    fn index(&self, indexes: &Vec<Value>, context: &mut Context) -> Result<Value, AstError> {
+    fn index(&self, indexes: &Vec<Value>, env: &mut Environment) -> Result<Value, AstError> {
         if indexes.is_empty() {
             return self.get_alloc();
         }
@@ -460,17 +460,17 @@ impl Symbol for FParamArraySymbol {
                 "Array dimensions mismatch".to_string(),
             ));
         }
-        let mut ptr = context.new_value().load(self.get_alloc()?);
-        context.add_inst(ptr);
-        ptr = context.new_value().get_ptr(ptr, indexes[0]);
-        context.add_inst(ptr);
+        let mut ptr = env.local_value().load(self.get_alloc()?);
+        env.add_inst(ptr);
+        ptr = env.local_value().get_ptr(ptr, indexes[0]);
+        env.add_inst(ptr);
         for &index in indexes[1..].iter() {
-            ptr = context.new_value().get_elem_ptr(ptr, index);
-            context.add_inst(ptr);
+            ptr = env.local_value().get_elem_ptr(ptr, index);
+            env.add_inst(ptr);
         }
         Ok(ptr)
     }
-    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Context) -> Result<(), AstError> {
+    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Environment) -> Result<(), AstError> {
         // Do nothing, as it is finished in Koopa builtin
         Ok(())
     }
@@ -502,13 +502,13 @@ impl Symbol for EmptySymbol {
         Err(AstError::IllegalAccessError("No bias".to_string()))
     }
 
-    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Context) -> Result<(), AstError> {
+    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Environment) -> Result<(), AstError> {
         Ok(())
     }
 }
 
-fn gen_array_type(ty: &Type, bias: &Vec<usize>) -> Type {
-    let mut ty = ty.clone();
+fn gen_array_type(ty: Type, bias: &Vec<usize>) -> Type {
+    let mut ty = ty;
     for i in (0..bias.len() - 1).rev() {
         let dim = bias[i] / bias[i + 1];
         ty = Type::get_array(ty, dim);
@@ -516,44 +516,45 @@ fn gen_array_type(ty: &Type, bias: &Vec<usize>) -> Type {
     ty
 }
 
-fn fill_global(init: ArrayParseResult<i32>, bias: &Vec<usize>, context: &mut Context) -> Value {
+fn fill_global(init: ArrayParseResult<i32>, bias: &Vec<usize>, env: &mut Environment) -> Value {
     let ints = init.unfold(0);
-    let mut values: Vec<Value> = ints.iter().map(|&x| context.integer(x)).collect();
+    let mut values: Vec<Value> = ints.iter().map(|&x| env.integer(x)).collect();
     for i in (0..bias.len() - 1).rev() {
         let step = bias[i] / bias[i + 1];
         let num = bias[0] / bias[i];
         let mut temp = vec![];
         for j in 0..num {
             let aggr = values[j * step..(j + 1) * step].to_vec();
-            temp.push(context.aggregate(aggr));
+            temp.push(env.aggregate(aggr));
         }
         values = temp;
     }
     // At last, there will be only one value in the values
-    context.glb_new_value().global_alloc(values[0])
+    assert!(values.len() == 1, "Global array initialization error");
+    env.glb_value().global_alloc(values[0])
 }
 
-fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, context: &mut Context) -> Value {
-    let arr_ty = gen_array_type(&Type::get_i32(), bias);
-    let alloc = context.new_value().alloc(arr_ty.clone());
-    context.add_inst(alloc);
+fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, env: &mut Environment) -> Value {
+    let arr_ty = gen_array_type(Type::get_i32(), bias);
+    let alloc = env.local_value().alloc(arr_ty.clone());
+    env.add_inst(alloc);
     for (idx, &value) in init
-        .unfold(context.new_value().integer(0))
+        .unfold(env.local_value().integer(0))
         .iter()
         .enumerate()
     {
         let mut c_idx = idx;
-        let index = context.new_value().integer((c_idx / bias[1]) as i32);
-        let mut ptr = context.new_value().get_elem_ptr(alloc, index);
-        context.add_inst(ptr);
+        let index = env.local_value().integer((c_idx / bias[1]) as i32);
+        let mut ptr = env.local_value().get_elem_ptr(alloc, index);
+        env.add_inst(ptr);
         for i in 2..bias.len() {
             c_idx %= bias[i - 1];
-            let index = context.new_value().integer((c_idx / bias[i]) as i32);
-            ptr = context.new_value().get_elem_ptr(ptr, index);
-            context.add_inst(ptr);
+            let index = env.local_value().integer((c_idx / bias[i]) as i32);
+            ptr = env.local_value().get_elem_ptr(ptr, index);
+            env.add_inst(ptr);
         }
-        let store = context.new_value().store(value, ptr);
-        context.add_inst(store);
+        let store = env.local_value().store(value, ptr);
+        env.add_inst(store);
     }
     alloc
 }

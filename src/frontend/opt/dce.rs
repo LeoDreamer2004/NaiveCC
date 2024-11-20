@@ -30,6 +30,10 @@ impl DeadCodeElimination {
 
         while let Some(inst) = self.worklist.pop() {
             for u in data.dfg().value(inst).kind().value_uses() {
+                if !data.dfg().values().contains_key(&u) {
+                    // this is a global value
+                    continue;
+                }
                 if !self.liveset.contains(&u) && data.dfg().value(u).kind().is_local_inst() {
                     self.liveset.insert(u);
                     self.worklist.push(u);

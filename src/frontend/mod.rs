@@ -1,7 +1,7 @@
 pub mod ast;
 mod builtin;
 #[macro_use]
-mod context;
+mod env;
 mod eval;
 mod generate;
 mod loops;

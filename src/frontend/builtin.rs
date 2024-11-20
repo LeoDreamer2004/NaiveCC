@@ -1,6 +1,6 @@
 use koopa::ir::{FunctionData, Type};
 
-use super::context::Context;
+use super::env::Environment;
 
 fn builtin_functions() -> Vec<FunctionData> {
     let get_int = FunctionData::new_decl("@getint".into(), vec![], Type::get_i32());
@@ -24,10 +24,10 @@ fn builtin_functions() -> Vec<FunctionData> {
     ]
 }
 
-pub fn set_up_builtins(context: &mut Context) {
+pub fn set_up_builtins(env: &mut Environment) {
     // builtin functions
     let builtins = builtin_functions();
     for func in builtins {
-        context.program.new_func(func);
+        env.program.new_func(func);
     }
 }
