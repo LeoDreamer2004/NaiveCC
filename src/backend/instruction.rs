@@ -1,4 +1,4 @@
-use super::register::Register;
+use super::registers::Register;
 
 pub type AsmProgram = Vec<Inst>;
 pub type Label = String;

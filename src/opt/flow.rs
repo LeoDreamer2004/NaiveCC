@@ -194,6 +194,7 @@ impl ControlFlowGraph {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct LiveVariableAnalyser {
     ins: HashMap<BasicBlock, HashSet<Inst>>,
     outs: HashMap<BasicBlock, HashSet<Inst>>,

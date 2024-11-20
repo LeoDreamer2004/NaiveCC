@@ -1,17 +1,17 @@
-use koopa::ir::{entities::ValueData, ValueKind};
-use std::collections::HashMap;
-
-use super::frames::Frame;
+use super::assign::Data;
+use super::assign::Location;
+use super::assign::RegisterDispatcher;
+use super::assign::Stack;
 use super::frames::FrameHelper;
 use super::instruction::*;
-use super::register::*;
+use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
+use koopa::ir::{entities::ValueData, ValueKind};
 
 pub type Pointer = *const ValueData;
 
 #[derive(Debug, Default)]
 pub struct AsmManager {
-    map: HashMap<Pointer, PointerInfo>,
     dpt: RegisterDispatcher,
     fh: FrameHelper,
 }
@@ -25,35 +25,6 @@ impl RegPack {
     pub fn new(reg: Register) -> Self {
         Self { reg }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct PointerInfo {
-    /// where the data is stored
-    location: Location,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Location {
-    /// The data is in the register.
-    Register(Register),
-    /// The data is in the stack.
-    Stack(Stack),
-    /// The data is in the data section.
-    Data(Data),
-}
-
-/// Stack address, which grows from high to low.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Stack {
-    base: Register,
-    offset: i32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Data {
-    label: Label,
-    offset: i32,
 }
 
 /// Basic element in an instruction, including immediate value and register.
@@ -83,26 +54,9 @@ impl AsmManager {
         &mut self.fh
     }
 
-    /// Get the location of the data.
-    fn info(&self, ptr: Pointer) -> Result<&PointerInfo, AsmError> {
-        self.map.get(&ptr).ok_or(AsmError::NullLocation(None))
-    }
-
-    fn info_mut(&mut self, ptr: Pointer) -> Result<&mut PointerInfo, AsmError> {
-        self.map.get_mut(&ptr).ok_or(AsmError::NullLocation(None))
-    }
-
-    /// Get the current frame.
-    fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
-        self.fh.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
-    }
-
-    fn add_location(&mut self, ptr: Pointer, location: Location) {
-        self.map.insert(ptr, PointerInfo { location });
-    }
-
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
-        self.add_location(ptr, Location::Data(Data { label, offset: 0 }));
+        self.dpt
+            .add_loc(ptr, Location::Data(Data { label, offset: 0 }));
     }
 
     /// Create a new pointer and allocate memory for it.
@@ -111,7 +65,7 @@ impl AsmManager {
         // TODO: Malloc or Register? That's a question
         let address = self.malloc(INT_SIZE)?;
         // let address = self.ralloc()?;
-        self.add_location(ptr, address);
+        self.dpt.add_loc(ptr, address);
         Ok(())
     }
 
@@ -132,16 +86,11 @@ impl AsmManager {
 
     /// Allocate memory.
     pub fn malloc(&mut self, size: usize) -> Result<Location, AsmError> {
-        let frame = self.current_frame_mut()?;
+        let frame = self.fh.current_frame_mut()?;
         let offset = (frame.var_size + frame.param_bias) as i32;
         let address = Location::Stack(Stack { base: SP, offset });
         frame.var_size += size;
         Ok(address)
-    }
-
-    /// Free the memory for the data.
-    pub fn free(&mut self, ptr: Pointer) {
-        self.map.remove(&ptr);
     }
 
     /// Save data in the register to the address of the dest.
@@ -151,7 +100,7 @@ impl AsmManager {
         src: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        let info = self.info_mut(dest)?;
+        let info = self.dpt.info_mut(dest)?;
 
         let src = src.reg;
         match &info.location.clone() {
@@ -274,7 +223,7 @@ impl AsmManager {
         dest: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        let location = self.info(src)?.location.clone();
+        let location = self.dpt.info(src)?.location.clone();
 
         let dest_reg = dest.reg;
         let is_none = dest_reg == ANY_REG;
@@ -337,7 +286,7 @@ impl AsmManager {
             }
             Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
         };
-        self.add_location(param, location);
+        self.dpt.add_loc(param, location);
         Ok(())
     }
 

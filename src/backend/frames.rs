@@ -1,4 +1,4 @@
-use super::register::*;
+use super::registers::*;
 use super::{instruction::*, AsmError};
 use super::{INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
 use koopa::ir::{FunctionData, ValueKind};
@@ -36,7 +36,7 @@ impl FrameHelper {
     }
 
     /// Start a new frame.
-    pub fn new_frame(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
+    pub fn prologue(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
         asm.push(Inst::Comment("-- prologue".to_string()));
         // add a placeholder here, waiting for update when the frame size is known.
         asm.push(Inst::Placeholder(Self::SP_IN));
@@ -68,8 +68,15 @@ impl FrameHelper {
         }
     }
 
+
+    /// Get the current frame.
+    pub fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
+        self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
+    }
+
+
     /// Mark an exit of the frame.
-    pub fn out_frame(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    pub fn epilogue(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
         // read all "call" instructions in the function
         asm.push(Inst::Comment("-- epilogue".to_string()));
         if self.need_save_ra() {
@@ -83,7 +90,7 @@ impl FrameHelper {
     }
 
     /// End the frame.
-    pub fn end_frame(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    pub fn end(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
         let mut size = 0;
         if self.need_save_ra() {
             size += INT_SIZE;

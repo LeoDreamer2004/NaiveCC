@@ -1,5 +1,5 @@
 use super::{AsmHelper, Optimizer};
-use crate::backend::register::FREE_REG;
+use crate::backend::registers::FREE_REG;
 use crate::backend::{instruction::*, is_imm12};
 
 

@@ -2,7 +2,7 @@ use super::env::{Environment, IntoElement};
 use super::instruction::*;
 use super::manager::RegPack;
 use super::opt::AsmOptimizeManager;
-use super::register;
+use super::registers;
 use super::INT_SIZE;
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
@@ -110,7 +110,7 @@ impl GenerateAsm for FunctionData {
         env.asm
             .push(Inst::Directive(Directive::Globl(label.clone())));
         env.asm.push(Inst::Label(label));
-        env.man.fh().new_frame(self, env.asm);
+        env.man.fh().prologue(self, env.asm);
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
@@ -124,7 +124,7 @@ impl GenerateAsm for FunctionData {
                 self.dfg().value(inst).generate_on(env)?;
             }
         }
-        env.man.fh().end_frame(env.asm)?;
+        env.man.fh().end(env.asm)?;
         Ok(())
     }
 }
@@ -215,9 +215,9 @@ impl GenerateAsm for ValueData {
                 if let Some(value) = ret.value() {
                     let e = value.into_element(&env.ctx);
                     env.man
-                        .load_to(&e, &mut RegPack::new(register::A0), env.asm)?;
+                        .load_to(&e, &mut RegPack::new(registers::A0), env.asm)?;
                 }
-                env.man.fh().out_frame(env.asm)?;
+                env.man.fh().epilogue(env.asm)?;
                 env.asm.push(Inst::Ret(Ret));
             }
             ValueKind::Jump(jump) => {
@@ -248,7 +248,7 @@ impl GenerateAsm for ValueData {
                     _ => unreachable!("Call callee should always be a function"),
                 };
                 if !is_unit {
-                    let mut pack = RegPack::new(register::A0);
+                    let mut pack = RegPack::new(registers::A0);
                     env.man.save_val_to(self, &mut pack, env.asm)?;
                 }
             }
