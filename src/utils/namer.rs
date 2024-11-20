@@ -10,6 +10,15 @@ pub struct NameGenerator<T> {
     f: NameMapper,
 }
 
+impl<T> Default for NameGenerator<T>
+where
+    T: Eq + Hash,
+{
+    fn default() -> Self {
+        NameGenerator::new(|id| id.to_string())
+    }
+}
+
 impl<T> NameGenerator<T>
 where
     T: Eq + Hash,
@@ -52,7 +61,6 @@ pub fn global_ident(ident: &String) -> String {
 pub fn original_ident(ident: &String) -> String {
     ident[1..].to_string()
 }
-
 
 #[cfg(test)]
 mod test {

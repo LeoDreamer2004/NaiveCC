@@ -47,6 +47,10 @@ impl FunctionPass for ConstantsInline {
                     //         }
                     //     }
                     // }
+                    ValueKind::Call(_) => {
+                        // Conservatively remove all the values
+                        self.livemap.clear();
+                    }
                     ValueKind::Store(store) => {
                         let value = store.value();
                         let s_data = func_data.dfg().value(value);
