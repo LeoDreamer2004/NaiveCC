@@ -1,8 +1,9 @@
-use super::instruction::AsmProgram;
+use super::frames::FrameStack;
 use super::manager::{AsmElement, AsmManager, Pointer, RegPack};
+use super::program::AsmProgram;
 use super::registers::ANY_REG;
 use super::AsmError;
-use crate::utils::namer::NameGenerator;
+use crate::utils::namer::IdGenerator;
 use koopa::ir::{entities::ValueData, BasicBlock, Function, FunctionData, Program, Type, Value};
 use std::cell::Ref;
 
@@ -56,7 +57,8 @@ impl<'a> Context<'a> {
 pub struct Environment<'a> {
     pub ctx: Context<'a>,
     pub man: AsmManager,
-    pub label_gen: NameGenerator<BasicBlock>,
+    pub fs: FrameStack,
+    pub label_gen: IdGenerator<BasicBlock>,
     pub asm: &'a mut AsmProgram,
 }
 
@@ -65,7 +67,8 @@ impl<'a> Environment<'a> {
         Environment {
             ctx: Context::new(program),
             man: AsmManager::default(),
-            label_gen: NameGenerator::new(|e| format!("L{}", e)),
+            fs: FrameStack::default(),
+            label_gen: IdGenerator::new(|e| format!("L{}", e)),
             asm,
         }
     }

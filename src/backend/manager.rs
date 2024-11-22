@@ -1,31 +1,29 @@
-use std::collections::HashMap;
-
-use crate::utils::namer::NameGenerator;
-
-use super::frames::FrameHelper;
 use super::instruction::*;
+use super::program::{AsmGlobal, AsmLocal, AsmProgram};
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
-use koopa::ir::{entities::ValueData, ValueKind};
+use crate::utils::namer::original_ident;
+use koopa::ir::entities::ValueData;
+use koopa::ir::{FunctionData, ValueKind};
+use std::collections::HashMap;
 
 pub type Pointer = *const ValueData;
-
-type Label = String;
+pub type Label = String;
 
 /// Stack address, which grows from high to low.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Stack {
     pub base: Register,
     pub offset: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Data {
     pub label: Label,
     pub offset: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 
 pub enum Location {
     /// The data is in the register.
@@ -45,8 +43,7 @@ pub struct PointerInfo {
 #[derive(Debug, Default)]
 pub struct AsmManager {
     map: HashMap<Pointer, PointerInfo>,
-    fh: FrameHelper,
-    reg_index: u64,
+    reg_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -83,20 +80,24 @@ impl AsmManager {
         self.map.insert(ptr, PointerInfo { location: loc });
     }
 
-    pub fn info(&self, ptr: Pointer) -> Result<&PointerInfo, AsmError> {
-        self.map
-            .get(&ptr)
+    pub fn loc(&self, ptr: Pointer) -> Result<Location, AsmError> {
+        self.where_is(ptr)
             .ok_or(AsmError::NullLocation(Some(format!("{ptr:?}"))))
     }
 
-    pub fn info_mut(&mut self, ptr: Pointer) -> Result<&mut PointerInfo, AsmError> {
-        self.map
-            .get_mut(&ptr)
-            .ok_or(AsmError::NullLocation(Some(format!("{ptr:?}"))))
+    pub fn where_is(&self, ptr: Pointer) -> Option<Location> {
+        self.map.get(&ptr).map(|info| info.location.clone())
     }
 
-    pub fn fh(&mut self) -> &mut FrameHelper {
-        &mut self.fh
+    pub fn new_func(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
+        let label = original_ident(&func_data.name().to_string());
+        let mut glb = AsmGlobal::new(Directive::Text, label);
+        glb.new_local(AsmLocal::new(Some(".prologue".to_string())));
+        asm.new_global(glb);
+    }
+
+    pub fn end_func(&mut self) {
+        self.map.clear();
     }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
@@ -105,12 +106,7 @@ impl AsmManager {
 
     pub fn new_reg(&mut self) -> Register {
         self.reg_index += 1;
-        Register::Fake(FakeRegister(self.reg_index))
-    }
-
-    pub fn new_val(&mut self, ptr: Pointer) {
-        let address = Location::Register(self.new_reg());
-        self.add_loc(ptr, address);
+        Register::Fake(FakeRegister(self.reg_index - 1))
     }
 
     pub fn new_val_with_src(
@@ -124,15 +120,6 @@ impl AsmManager {
         self.save_val_to(ptr, src, asm)
     }
 
-    /// Allocate memory.
-    pub fn malloc(&mut self, size: usize) -> Result<Location, AsmError> {
-        let frame = self.fh.current_frame_mut()?;
-        let offset = (frame.var_size + frame.param_bias) as i32;
-        let address = Location::Stack(Stack { base: SP, offset });
-        frame.var_size += size;
-        Ok(address)
-    }
-
     /// Save data in the register to the address of the dest.
     pub fn save_val_to(
         &mut self,
@@ -140,24 +127,22 @@ impl AsmManager {
         src: &RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        let info = self.info_mut(dest)?;
-
         let src = src.reg;
-        match &info.location.clone() {
+        match &self.loc(dest)? {
             Location::Register(reg) => {
                 if *reg == src {
                     return Ok(());
                 }
-                asm.push(Inst::Mv(Mv(*reg, src)));
+                asm.push(Inst::Mv(*reg, src));
             }
             Location::Stack(stack) => {
                 // save the data in the register to the stack
-                asm.push(Inst::Sw(Sw(src, stack.base, stack.offset)));
+                asm.push(Inst::Sw(src, stack.base, stack.offset));
             }
             Location::Data(data) => {
                 let label = data.label.clone();
-                asm.push(Inst::La(La(FREE_REG, label)));
-                asm.push(Inst::Sw(Sw(src, FREE_REG, data.offset)));
+                asm.push(Inst::La(FREE_REG, label));
+                asm.push(Inst::Sw(src, FREE_REG, data.offset));
             }
         }
         Ok(())
@@ -183,7 +168,7 @@ impl AsmManager {
             dest.reg = ZERO;
         } else {
             let dest_reg = self.true_reg(dest_reg);
-            asm.push(Inst::Li(Li(dest_reg, imm)));
+            asm.push(Inst::Li(dest_reg, imm));
             dest.reg = dest_reg;
         }
         Ok(())
@@ -202,11 +187,11 @@ impl AsmManager {
                 return Err(AsmError::IllegalGetAddress);
             }
             Location::Stack(stack) => {
-                asm.push(Inst::Addi(Addi(dest, stack.base, stack.offset)));
+                asm.push(Inst::Addi(dest, stack.base, stack.offset));
             }
             Location::Data(data) => {
-                asm.push(Inst::La(La(dest, data.label.clone())));
-                asm.push(Inst::Addi(Addi(dest, dest, data.offset)));
+                asm.push(Inst::La(dest, data.label.clone()));
+                asm.push(Inst::Addi(dest, dest, data.offset));
             }
         }
         Ok(())
@@ -214,12 +199,12 @@ impl AsmManager {
 
     /// Load the data from the address of the src to the register.
     pub fn load_deref_to(&mut self, src: &RegPack, dest: &mut RegPack, asm: &mut AsmProgram) {
-        asm.push(Inst::Lw(Lw(dest.reg, src.reg, 0)));
+        asm.push(Inst::Lw(dest.reg, src.reg, 0));
     }
 
     /// Save the data in the register to the address of the dest.
     pub fn save_deref_to(&mut self, src: &RegPack, dest: &mut RegPack, asm: &mut AsmProgram) {
-        asm.push(Inst::Sw(Sw(src.reg, dest.reg, 0)));
+        asm.push(Inst::Sw(src.reg, dest.reg, 0));
     }
 
     pub fn add_bias(
@@ -239,11 +224,11 @@ impl AsmManager {
                 self.load_imm_to(unit_size as i32, &mut pack, asm)?;
                 let unit = pack.reg;
 
-                asm.push(Inst::Mul(Mul(FREE_REG, FREE_REG, unit)));
-                asm.push(Inst::Add(Add(reg, reg, FREE_REG)));
+                asm.push(Inst::Mul(FREE_REG, FREE_REG, unit));
+                asm.push(Inst::Add(reg, reg, FREE_REG));
             }
             AsmElement::Imm(imm) => {
-                asm.push(Inst::Addi(Addi(reg, reg, *imm * (unit_size as i32))));
+                asm.push(Inst::Addi(reg, reg, imm * (unit_size as i32)));
             }
         }
         Ok(())
@@ -256,24 +241,23 @@ impl AsmManager {
         dest: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        let location = self.info(src)?.location.clone();
         let dest_reg = self.true_reg(dest.reg);
-        match location {
+        match &self.loc(src)? {
             Location::Register(reg) => {
                 if dest.reg == ANY_REG {
-                    dest.reg = reg;
-                } else if reg != dest_reg {
-                    asm.push(Inst::Mv(Mv(dest_reg, reg)));
+                    dest.reg = *reg;
+                } else if *reg != dest_reg {
+                    asm.push(Inst::Mv(dest_reg, *reg));
                     dest.reg = dest_reg;
                 }
             }
             Location::Stack(stack) => {
-                asm.push(Inst::Lw(Lw(dest_reg, stack.base, stack.offset)));
+                asm.push(Inst::Lw(dest_reg, stack.base, stack.offset));
                 dest.reg = dest_reg;
             }
             Location::Data(data) => {
-                asm.push(Inst::La(La(dest_reg, data.label.clone())));
-                asm.push(Inst::Addi(Addi(dest_reg, dest_reg, data.offset)));
+                asm.push(Inst::La(dest_reg, data.label.clone()));
+                asm.push(Inst::Addi(dest_reg, dest_reg, data.offset));
                 dest.reg = dest_reg;
             }
         }
@@ -294,7 +278,7 @@ impl AsmManager {
 
     fn param_location(index: usize) -> Location {
         if index < MAX_PARAM_REG {
-            Location::Register(RegisterType::ARGU_REGISTERS[index])
+            Location::Register(RegisterType::all(&RegisterType::Arg)[index])
         } else {
             let offset = ((index - MAX_PARAM_REG) * INT_SIZE) as i32;
             Location::Stack(Stack { base: SP, offset })
@@ -329,7 +313,7 @@ impl AsmManager {
             }
             Location::Stack(stack) => {
                 self.load_to(&e, &mut RegPack::new(FREE_REG), asm)?;
-                asm.push(Inst::Sw(Sw(FREE_REG, stack.base, stack.offset)));
+                asm.push(Inst::Sw(FREE_REG, stack.base, stack.offset));
             }
             Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
         }

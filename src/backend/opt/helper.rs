@@ -1,8 +1,9 @@
-use crate::backend::instruction::{AsmProgram, Inst};
+use crate::backend::instruction::Inst;
+use crate::backend::program::AsmLocal;
 
 pub struct AsmHelper {
-    asm: AsmProgram,
-    res: AsmProgram,
+    insts: Vec<Inst>,
+    res: AsmLocal,
 }
 
 pub struct Cursor<'a> {
@@ -13,15 +14,14 @@ pub struct Cursor<'a> {
 }
 
 impl AsmHelper {
-    pub fn new(asm: AsmProgram) -> Self {
-        Self {
-            asm,
-            res: AsmProgram::new(),
-        }
+    pub fn new(asm: &AsmLocal) -> Self {
+        let res = AsmLocal::new_from(asm);
+        let insts = asm.insts().clone();
+        Self { insts, res }
     }
 
     pub fn new_cursor(&mut self) -> Cursor {
-        let tot_len = self.asm.len();
+        let tot_len = self.insts.len();
         Cursor {
             helper: self,
             idx: 0,
@@ -30,7 +30,7 @@ impl AsmHelper {
         }
     }
 
-    pub fn result(self) -> AsmProgram {
+    pub fn result(self) -> AsmLocal {
         self.res
     }
 }
@@ -38,8 +38,8 @@ impl AsmHelper {
 impl<'a> Cursor<'a> {
     pub fn next(&mut self) {
         if !self.remove {
-            let inst = self.helper.asm[self.idx].clone();
-            self.helper.res.push(inst);
+            let inst = self.helper.insts[self.idx].clone();
+            self.helper.res.insts_mut().push(inst);
         }
         self.remove = false;
         self.idx += 1;
@@ -49,15 +49,21 @@ impl<'a> Cursor<'a> {
         self.idx >= self.tot_len
     }
 
+    pub fn go_to_end(&mut self) {
+        while !self.end() {
+            self.next();
+        }
+    }
+
     pub fn current(&self) -> &Inst {
-        &self.helper.asm[self.idx]
+        &self.helper.insts[self.idx]
     }
 
     pub fn peek(&self, bias: i32) -> Option<&Inst> {
         if (self.idx as i32 + bias) < 0 || (self.idx as i32 + bias) as usize >= self.tot_len {
             return None;
         }
-        Some(&self.helper.asm[(self.idx as i32 + bias) as usize])
+        Some(&self.helper.insts[(self.idx as i32 + bias) as usize])
     }
 
     pub fn remove_cur(&mut self) {
@@ -65,6 +71,6 @@ impl<'a> Cursor<'a> {
     }
 
     pub fn insert(&mut self, inst: Inst) {
-        self.helper.res.push(inst);
+        self.helper.res.insts_mut().push(inst);
     }
 }

@@ -1,3 +1,5 @@
+use super::manager::{Location, Stack};
+use super::program::AsmProgram;
 use super::registers::*;
 use super::{instruction::*, AsmError};
 use super::{INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
@@ -13,11 +15,11 @@ pub struct Frame {
 }
 
 #[derive(Debug, Default)]
-pub struct FrameHelper {
+pub struct FrameStack {
     pub frames: LinkedList<Frame>,
 }
 
-impl FrameHelper {
+impl FrameStack {
     const SP_IN: u8 = 0;
     const SP_OUT: u8 = 1;
     const SAVE_RA: u8 = 2;
@@ -35,9 +37,21 @@ impl FrameHelper {
             .map_or(false, |frame| frame.param_bias > 0)
     }
 
+    /// Get the current frame.
+    fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
+        self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
+    }
+
+    pub fn malloc(&mut self, size: usize) -> Result<Location, AsmError> {
+        let frame = self.current_frame_mut()?;
+        let offset = (frame.var_size + frame.param_bias) as i32;
+        let address = Location::Stack(Stack { base: SP, offset });
+        frame.var_size += size;
+        Ok(address)
+    }
+
     /// Start a new frame.
     pub fn prologue(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
-        asm.push(Inst::Comment("-- prologue".to_string()));
         // add a placeholder here, waiting for update when the frame size is known.
         asm.push(Inst::Placeholder(Self::SP_IN));
 
@@ -64,16 +78,9 @@ impl FrameHelper {
         }
         if self.need_use_s0() {
             asm.push(Inst::Placeholder(Self::SAVE_S0));
-            asm.push(Inst::Mv(Mv(S0, SP)));
+            asm.push(Inst::Mv(S0, SP));
         }
     }
-
-
-    /// Get the current frame.
-    pub fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
-        self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
-    }
-
 
     /// Mark an exit of the frame.
     pub fn epilogue(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
@@ -108,45 +115,42 @@ impl FrameHelper {
         }
 
         // recover the place holder
-        let mut flag = false;
-        for inst in asm.iter_mut().rev() {
-            if let Inst::Placeholder(p) = inst {
-                match *p {
-                    Self::SP_IN => {
-                        flag = true;
-                        if size == 0 {
-                            *inst = Inst::Nop;
-                        } else {
-                            *inst = Inst::Addi(Addi(SP, SP, -size));
+        for local in asm.cur_global_mut().locals_mut().iter_mut().rev() {
+            for inst in local.insts_mut().iter_mut().rev() {
+                if let Inst::Placeholder(p) = inst {
+                    match *p {
+                        Self::SP_IN => {
+                            if size == 0 {
+                                *inst = Inst::Nop;
+                            } else {
+                                *inst = Inst::Addi(SP, SP, -size);
+                            }
+                            return Ok(());
                         }
-                        break;
-                    }
-                    Self::SP_OUT => {
-                        *inst = if size == 0 {
-                            Inst::Nop
-                        } else {
-                            Inst::Addi(Addi(SP, SP, size))
+                        Self::SP_OUT => {
+                            *inst = if size == 0 {
+                                Inst::Nop
+                            } else {
+                                Inst::Addi(SP, SP, size)
+                            }
                         }
+                        Self::SAVE_RA => {
+                            *inst = Inst::Sw(RA, SP, size - INT_SIZE as i32);
+                        }
+                        Self::RECOVER_RA => {
+                            *inst = Inst::Lw(RA, SP, size - INT_SIZE as i32);
+                        }
+                        Self::SAVE_S0 => {
+                            *inst = Inst::Sw(S0, SP, size - 2 * INT_SIZE as i32);
+                        }
+                        Self::RECOVER_S0 => {
+                            *inst = Inst::Lw(S0, SP, size - 2 * INT_SIZE as i32);
+                        }
+                        _ => unreachable!("Unknown placeholder"),
                     }
-                    Self::SAVE_RA => {
-                        *inst = Inst::Sw(Sw(RA, SP, size - INT_SIZE as i32));
-                    }
-                    Self::RECOVER_RA => {
-                        *inst = Inst::Lw(Lw(RA, SP, size - INT_SIZE as i32));
-                    }
-                    Self::SAVE_S0 => {
-                        *inst = Inst::Sw(Sw(S0, SP, size - 2 * INT_SIZE as i32));
-                    }
-                    Self::RECOVER_S0 => {
-                        *inst = Inst::Lw(Lw(S0, SP, size - 2 * INT_SIZE as i32));
-                    }
-                    _ => unreachable!("Unknown placeholder"),
                 }
             }
         }
-        if !flag {
-            return Err(AsmError::InvalidStackFrame);
-        }
-        Ok(())
+        Err(AsmError::InvalidStackFrame)
     }
 }

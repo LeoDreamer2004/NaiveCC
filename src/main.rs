@@ -14,7 +14,6 @@ use std::process::exit;
 
 mod backend;
 mod frontend;
-mod opt;
 mod utils;
 
 lalrpop_mod!(sysy);

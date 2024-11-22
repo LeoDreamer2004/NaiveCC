@@ -1,14 +1,16 @@
+use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
 use super::instruction::*;
 use super::manager::RegPack;
 use super::opt::AsmOptimizeManager;
+use super::program::{AsmGlobal, AsmLocal, AsmProgram};
 use super::registers;
 use super::INT_SIZE;
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
 use koopa::ir::{BinaryOp, Function, FunctionData, Program, TypeKind, ValueKind};
 use std::cell::Ref;
-use std::io::Write;
+use std::io;
 
 pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
     // generate
@@ -22,11 +24,8 @@ pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
     Ok(asm)
 }
 
-pub fn emit_asm(program: AsmProgram, mut output: impl Write) -> Result<(), std::io::Error> {
-    for inst in program {
-        writeln!(output, "{}", inst.dump())?;
-    }
-    Ok(())
+pub fn emit_asm(program: AsmProgram, output: impl io::Write) -> Result<(), io::Error> {
+    program.emit(output)
 }
 
 #[derive(Debug)]
@@ -52,12 +51,12 @@ pub trait GenerateAsm {
 impl GenerateAsm for Program {
     fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
         for &g_value in self.inst_layout() {
-            env.asm.push(Inst::Directive(Directive::Data));
             let g_data = self.borrow_value(g_value);
             let label = g_data.name().clone().unwrap()[1..].to_string();
-            env.asm
-                .push(Inst::Directive(Directive::Globl(label.clone())));
-            env.asm.push(Inst::Label(label.clone()));
+
+            let mut glb = AsmGlobal::new(Directive::Data, label.clone());
+            glb.new_local(AsmLocal::new(None));
+            env.asm.new_global(glb);
 
             if let ValueKind::GlobalAlloc(alloc) = g_data.kind() {
                 let data = self.borrow_value(alloc.init());
@@ -82,16 +81,16 @@ impl GenerateAsm for Program {
 fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmProgram) {
     match data.kind() {
         ValueKind::ZeroInit(_) => {
-            asm.push(Inst::Directive(Directive::Zero(data.ty().size())));
+            asm.push(Inst::Zero(data.ty().size()));
         }
         ValueKind::Integer(int) => {
             let value = int.value();
-            let directive = if value == 0 {
-                Directive::Zero(INT_SIZE)
+            let inst = if value == 0 {
+                Inst::Zero(INT_SIZE)
             } else {
-                Directive::Word(value)
+                Inst::Word(value)
             };
-            asm.push(Inst::Directive(directive));
+            asm.push(inst);
         }
         ValueKind::Aggregate(aggr) => {
             for &value in aggr.elems() {
@@ -105,12 +104,8 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmPr
 
 impl GenerateAsm for FunctionData {
     fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
-        env.asm.push(Inst::Directive(Directive::Text));
-        let label = original_ident(&self.name().to_string());
-        env.asm
-            .push(Inst::Directive(Directive::Globl(label.clone())));
-        env.asm.push(Inst::Label(label));
-        env.man.fh().prologue(self, env.asm);
+        env.man.new_func(self, env.asm);
+        env.fs.prologue(self, env.asm);
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
@@ -119,12 +114,18 @@ impl GenerateAsm for FunctionData {
         }
 
         for (&bb, node) in self.layout().bbs() {
-            env.asm.push(Inst::Label(env.label_gen.get_name(bb)));
+            let local = AsmLocal::new(Some(env.label_gen.get_name(bb)));
+            env.asm.cur_global_mut().new_local(local);
             for &inst in node.insts().keys() {
                 self.dfg().value(inst).generate_on(env)?;
             }
         }
-        env.man.fh().end(env.asm)?;
+
+        let asm = env.asm.cur_global_mut();
+        RegisterAssigner::default().assign(asm, &mut env.fs);
+
+        env.man.end_func();
+        env.fs.end(env.asm)?;
         Ok(())
     }
 }
@@ -141,7 +142,7 @@ impl GenerateAsm for ValueData {
                     _ => unreachable!("Alloc type should always be a pointer"),
                 };
                 // malloc the data
-                let location = env.man.malloc(size)?;
+                let location = env.fs.malloc(size)?;
                 // new value "self" as a pointer
                 let reg = env.man.new_reg();
                 let mut pack = RegPack::new(reg);
@@ -163,42 +164,45 @@ impl GenerateAsm for ValueData {
                 let rs2 = env.new_pack(binary.rhs())?.reg;
                 let rd = env.man.new_reg();
                 let insts = match binary.op() {
-                    BinaryOp::Add => vec![Inst::Add(Add(rd, rs1, rs2))],
-                    BinaryOp::Sub => vec![Inst::Sub(Sub(rd, rs1, rs2))],
-                    BinaryOp::Mul => vec![Inst::Mul(Mul(rd, rs1, rs2))],
-                    BinaryOp::Div => vec![Inst::Div(Div(rd, rs1, rs2))],
-                    BinaryOp::Mod => vec![Inst::Rem(Rem(rd, rs1, rs2))],
-                    BinaryOp::Lt => vec![Inst::Slt(Slt(rd, rs1, rs2))],
-                    BinaryOp::Gt => vec![Inst::Sgt(Sgt(rd, rs1, rs2))],
-                    BinaryOp::And => vec![Inst::And(And(rd, rs1, rs2))],
-                    BinaryOp::Or => vec![Inst::Or(Or(rd, rs1, rs2))],
-                    BinaryOp::Xor => vec![Inst::Xor(Xor(rd, rs1, rs2))],
-                    BinaryOp::Shl => vec![Inst::Sll(Sll(rd, rs1, rs2))],
-                    BinaryOp::Shr => vec![Inst::Srl(Srl(rd, rs1, rs2))],
-                    BinaryOp::Sar => vec![Inst::Sra(Sra(rd, rs1, rs2))],
+                    BinaryOp::Add => vec![Inst::Add(rd, rs1, rs2)],
+                    BinaryOp::Sub => vec![Inst::Sub(rd, rs1, rs2)],
+                    BinaryOp::Mul => vec![Inst::Mul(rd, rs1, rs2)],
+                    BinaryOp::Div => vec![Inst::Div(rd, rs1, rs2)],
+                    BinaryOp::Mod => vec![Inst::Rem(rd, rs1, rs2)],
+                    BinaryOp::Lt => vec![Inst::Slt(rd, rs1, rs2)],
+                    BinaryOp::Gt => vec![Inst::Sgt(rd, rs1, rs2)],
+                    BinaryOp::And => vec![Inst::And(rd, rs1, rs2)],
+                    BinaryOp::Or => vec![Inst::Or(rd, rs1, rs2)],
+                    BinaryOp::Xor => vec![Inst::Xor(rd, rs1, rs2)],
+                    BinaryOp::Shl => vec![Inst::Sll(rd, rs1, rs2)],
+                    BinaryOp::Shr => vec![Inst::Srl(rd, rs1, rs2)],
+                    BinaryOp::Sar => vec![Inst::Sra(rd, rs1, rs2)],
 
                     BinaryOp::Eq => vec![
                         // a == b => (a ^ b) == 0
-                        Inst::Xor(Xor(rd, rs1, rs2)),
-                        Inst::SeqZ(SeqZ(rd, rd)),
+                        Inst::Xor(rd, rs1, rs2),
+                        Inst::SeqZ(rd, rd),
                     ],
                     BinaryOp::NotEq => vec![
                         // a != b => (a ^ b) != 0
-                        Inst::Xor(Xor(rd, rs1, rs2)),
-                        Inst::SneZ(SneZ(rd, rd)),
+                        Inst::Xor(rd, rs1, rs2),
+                        Inst::SneZ(rd, rd),
                     ],
                     BinaryOp::Ge => vec![
                         // a >= b => (a < b) == 0
-                        Inst::Slt(Slt(rd, rs1, rs2)),
-                        Inst::SeqZ(SeqZ(rd, rd)),
+                        Inst::Slt(rd, rs1, rs2),
+                        Inst::SeqZ(rd, rd),
                     ],
                     BinaryOp::Le => vec![
                         // a <= b => (a > b) == 0
-                        Inst::Sgt(Sgt(rd, rs1, rs2)),
-                        Inst::SeqZ(SeqZ(rd, rd)),
+                        Inst::Sgt(rd, rs1, rs2),
+                        Inst::SeqZ(rd, rd),
                     ],
                 };
-                env.asm.extend(insts);
+
+                for inst in insts {
+                    env.asm.push(inst);
+                }
 
                 let pack = &mut RegPack::new(rd);
                 env.man.new_val_with_src(self, pack, env.asm)?;
@@ -209,20 +213,20 @@ impl GenerateAsm for ValueData {
                     let pack = &mut RegPack::new(registers::A0);
                     env.man.load_to(&e, pack, env.asm)?;
                 }
-                env.man.fh().epilogue(env.asm)?;
-                env.asm.push(Inst::Ret(Ret));
+                env.fs.epilogue(env.asm)?;
+                env.asm.push(Inst::Ret);
             }
             ValueKind::Jump(jump) => {
                 let label = jump.target();
-                env.asm.push(Inst::J(J(env.label_gen.get_name(label))));
+                env.asm.push(Inst::J(env.label_gen.get_name(label)));
             }
             ValueKind::Branch(branch) => {
                 let rs = env.new_pack(branch.cond())?.reg;
                 let true_bb = branch.true_bb();
                 env.asm
-                    .push(Inst::Bnez(Bnez(rs, env.label_gen.get_name(true_bb))));
+                    .push(Inst::Bnez(rs, env.label_gen.get_name(true_bb)));
                 let false_bb = branch.false_bb();
-                env.asm.push(Inst::J(J(env.label_gen.get_name(false_bb))));
+                env.asm.push(Inst::J(env.label_gen.get_name(false_bb)));
             }
             ValueKind::Call(call) => {
                 for (index, &p) in call.args().iter().enumerate() {
@@ -231,7 +235,7 @@ impl GenerateAsm for ValueData {
                 }
                 let func_data = env.ctx.program.func(call.callee());
                 let ident = original_ident(&func_data.name().to_string());
-                env.asm.push(Inst::Call(Call(ident)));
+                env.asm.push(Inst::Call(ident));
                 let is_unit = match func_data.ty().kind() {
                     TypeKind::Function(_, ret) => ret.is_unit(),
                     _ => unreachable!("Call callee should always be a function"),

@@ -1,4 +1,3 @@
-use super::instruction::AsmProgram;
 mod algorithm;
 mod helper;
 mod immfix;
@@ -9,12 +8,14 @@ use algorithm::AlgorithmOptimizer;
 use immfix::ImmFixOptimizer;
 use peephole::PeepholeOptimizer;
 
+use super::program::{AsmGlobal, AsmLocal, AsmProgram};
+
 pub struct AsmOptimizeManager {
     optimizers: Vec<Box<dyn Optimizer>>,
 }
 
 pub trait Optimizer {
-    fn run(&mut self, asm: AsmProgram) -> AsmProgram;
+    fn run(&mut self, asm: &AsmLocal) -> AsmLocal;
 }
 
 impl AsmOptimizeManager {
@@ -39,7 +40,13 @@ impl AsmOptimizeManager {
     pub fn run(&mut self, asm: AsmProgram) -> AsmProgram {
         let mut asm = asm;
         for opt in self.optimizers.iter_mut() {
-            asm = opt.run(asm);
+            let mut res = AsmProgram::new();
+            for g in asm.globals_mut() {
+                res.new_global(AsmGlobal::new_from(g));
+                for l in g.locals_mut() {
+                    *l = opt.run(l);
+                }
+            }
         }
         asm
     }
