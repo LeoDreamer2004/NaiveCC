@@ -1,10 +1,10 @@
 use super::frames::FrameStack;
 use super::location::{AsmElement, Pointer};
-use super::manager::{AsmManager, RegPack};
-use super::program::AsmProgram;
+use super::manager::{AsmManager, InfoPack};
 use super::AsmError;
 use crate::utils::namer::IdGenerator;
-use koopa::ir::{entities::ValueData, BasicBlock, Function, FunctionData, Program, Type, Value};
+use koopa::ir::entities::ValueData;
+use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, Value};
 use std::cell::Ref;
 
 pub struct Context<'a> {
@@ -59,23 +59,21 @@ pub struct Environment<'a> {
     pub man: AsmManager,
     pub fs: FrameStack,
     pub label_gen: IdGenerator<BasicBlock>,
-    pub asm: &'a mut AsmProgram,
 }
 
 impl<'a> Environment<'a> {
-    pub fn new(program: &'a Program, asm: &'a mut AsmProgram) -> Self {
+    pub fn new(program: &'a Program) -> Self {
         Environment {
             ctx: Context::new(program),
             man: AsmManager::default(),
             fs: FrameStack::default(),
             label_gen: IdGenerator::new(|e| format!("L{}", e)),
-            asm,
         }
     }
 
-    pub fn new_pack(&mut self, value: Value) -> Result<RegPack, AsmError> {
+    pub fn new_pack(&mut self, value: Value) -> Result<InfoPack, AsmError> {
         let e = value.into_element(&self.ctx);
-        let mut pack = RegPack::new(self.man.new_reg());
+        let mut pack = InfoPack::new(self.man.new_reg());
         self.man.load_to(&e, &mut pack)?;
         Ok(pack)
     }

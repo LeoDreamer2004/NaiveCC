@@ -80,21 +80,20 @@ pub const S0: Register = Register::RiscV(RiscVRegister("s0"));
 
 pub enum RegisterType {
     Arg,
-    Saved, // callee-saved
-    Temp,  // caller-saved
+    Temp, // caller-saved
 }
 
 pub const FREE_REG: Register = T0;
 
 impl RegisterType {
     const ARGU_REGISTERS: [Register; 8] = [A0, A1, A2, A3, A4, A5, A6, A7];
-    const SAVED_REGISTERS: [Register; 11] = [S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11];
-    const TEMP_REGISTERS: [Register; 17] = [T1, T2, T3, T4, T5, T6, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11];
+    const TEMP_REGISTERS: [Register; 17] = [
+        T1, T2, T3, T4, T5, T6, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11,
+    ];
 
     pub fn all(&self) -> &[Register] {
         match self {
             RegisterType::Arg => &Self::ARGU_REGISTERS,
-            RegisterType::Saved => &Self::SAVED_REGISTERS,
             RegisterType::Temp => &Self::TEMP_REGISTERS,
         }
     }

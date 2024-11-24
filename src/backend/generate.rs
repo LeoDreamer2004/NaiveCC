@@ -1,13 +1,14 @@
 use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
 use super::instruction::*;
-use super::manager::RegPack;
+use super::manager::InfoPack;
 use super::opt::AsmOptimizeManager;
 use super::program::{AsmGlobal, AsmLocal, AsmProgram};
 use super::registers;
 use super::INT_SIZE;
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
+use koopa::ir::values::*;
 use koopa::ir::{BinaryOp, Function, FunctionData, Program, TypeKind, ValueKind};
 use std::cell::Ref;
 use std::io;
@@ -15,8 +16,8 @@ use std::io;
 pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
     // generate
     let mut asm = AsmProgram::new();
-    let mut env = Environment::new(&program, &mut asm);
-    program.generate_on(&mut env)?;
+    let mut env = Environment::new(&program);
+    program.generate_on(&mut env, &mut asm)?;
 
     // optimization
     let mut optman = AsmOptimizeManager::default();
@@ -41,47 +42,60 @@ pub enum AsmError {
 ///
 /// This trait is implemented by all the IR entities that can be translated into assembly code.
 pub trait GenerateAsm {
+    type AsmTarget;
     /// Generate assembly code for the entity.
     ///
     /// # Errors
     /// AsmError is returned if the generation fails.
-    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError>;
+    fn generate_on(&self, env: &mut Environment, asm: &mut Self::AsmTarget)
+        -> Result<(), AsmError>;
 }
 
 impl GenerateAsm for Program {
-    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
+    type AsmTarget = AsmProgram;
+
+    fn generate_on(&self, env: &mut Environment, asm: &mut AsmProgram) -> Result<(), AsmError> {
+        // global data
         for &g_value in self.inst_layout() {
             let g_data = self.borrow_value(g_value);
             let label = g_data.name().clone().unwrap()[1..].to_string();
 
             let mut glb = AsmGlobal::new(Directive::Data, label.clone());
-            glb.new_local(AsmLocal::new(None));
-            env.asm.new_global(glb);
+            let mut local = AsmLocal::new(None);
 
             if let ValueKind::GlobalAlloc(alloc) = g_data.kind() {
                 let data = self.borrow_value(alloc.init());
-                generate_global_data(data, env.ctx.program, env.asm);
+                generate_global_data(data, env.ctx.program, &mut local);
             }
-
+            glb.new_local(local);
+            asm.new_global(glb);
             env.man.global_new(&*g_data, label);
         }
 
+        // function data
         for &func in self.func_layout() {
             env.ctx.function = Some(func);
             let func_data = self.func(func);
             // skip declaration
             if !func_data.layout().entry_bb().is_none() {
-                func_data.generate_on(env)?;
+                let label = original_ident(&func_data.name().to_string());
+                let mut glb = AsmGlobal::new(Directive::Text, label);
+
+                let label = format!(".prologue_{}", env.man.new_func_idx());
+                glb.new_local(AsmLocal::new(Some(label)));
+
+                func_data.generate_on(env, &mut glb)?;
+                asm.new_global(glb);
             }
         }
         Ok(())
     }
 }
 
-fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmProgram) {
+fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmLocal) {
     match data.kind() {
         ValueKind::ZeroInit(_) => {
-            asm.push(Inst::Zero(data.ty().size()));
+            asm.insts_mut().push(Inst::Zero(data.ty().size()));
         }
         ValueKind::Integer(int) => {
             let value = int.value();
@@ -90,7 +104,7 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmPr
             } else {
                 Inst::Word(value)
             };
-            asm.push(inst);
+            asm.insts_mut().push(inst);
         }
         ValueKind::Aggregate(aggr) => {
             for &value in aggr.elems() {
@@ -102,7 +116,7 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmPr
     }
 
     // Merge the last two zero if possible
-    let insts = asm.cur_local_mut().insts_mut();
+    let insts = asm.insts_mut();
     if insts.len() >= 2 {
         let last = insts.pop().unwrap();
         let prev = insts.pop().unwrap();
@@ -116,9 +130,11 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmPr
 }
 
 impl GenerateAsm for FunctionData {
-    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
-        env.man.new_func(self, env.asm);
-        env.fs.prologue(self, env.asm);
+    type AsmTarget = AsmGlobal;
+
+    fn generate_on(&self, env: &mut Environment, asm: &mut AsmGlobal) -> Result<(), AsmError> {
+        let prologue = asm.locals_mut().last_mut().unwrap();
+        env.fs.build_prologue(self, prologue);
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
@@ -127,171 +143,272 @@ impl GenerateAsm for FunctionData {
         }
 
         for (&bb, node) in self.layout().bbs() {
-            let local = AsmLocal::new(Some(env.label_gen.get_name(bb)));
-            env.asm.cur_global_mut().new_local(local);
+            let mut local = AsmLocal::new(Some(env.label_gen.get_name(bb)));
             for &inst in node.insts().keys() {
-                self.dfg().value(inst).generate_on(env)?;
+                self.dfg().value(inst).generate_on(env, &mut local)?;
             }
+            asm.new_local(local);
         }
 
-        let asm = env.asm.cur_global_mut();
         RegisterAssigner::default().assign(asm, &mut env.fs);
-
         env.man.end_func();
-        env.fs.end(env.asm)?;
+        env.fs.end_fill(asm)?;
         Ok(())
     }
 }
 
 impl GenerateAsm for ValueData {
-    fn generate_on(&self, env: &mut Environment) -> Result<(), AsmError> {
-        match self.kind() {
-            ValueKind::Integer(_) => {
-                unreachable!("Integer is not an instruction in KoopaIR");
-            }
-            ValueKind::Alloc(_) => {
-                let size = match self.ty().kind() {
-                    TypeKind::Pointer(p) => p.size(),
-                    _ => unreachable!("Alloc type should always be a pointer"),
-                };
-                // malloc the data
-                let stack = env.fs.malloc(size)?;
-                // new value "self" as a pointer
-                let reg = env.man.new_reg();
-                let mut pack = RegPack::new(reg);
-                env.man.load_ref_to(stack, &mut pack);
-                env.man.new_val_with_src(self, pack, env.asm)?;
-            }
-            ValueKind::Store(store) => {
-                let src = env.new_pack(store.value())?;
-                let dest = env.new_pack(store.dest())?;
-                env.man.save_deref_to(src, dest, env.asm);
-            }
-            ValueKind::Load(load) => {
-                let mut pack = env.new_pack(load.src())?;
-                env.man.load_deref_to(pack.clone(), &mut pack);
-                env.man.new_val_with_src(self, pack, env.asm)?;
-            }
-            ValueKind::Binary(binary) => {
-                let p1 = env.new_pack(binary.lhs())?;
-                let p2 = env.new_pack(binary.rhs())?;
-                let rs1 = p1.reg;
-                let rs2 = p2.reg;
-                env.man.write_pack(p1, env.asm);
-                env.man.write_pack(p2, env.asm);
-                let rd = env.man.new_reg();
-                let insts = match binary.op() {
-                    BinaryOp::Add => vec![Inst::Add(rd, rs1, rs2)],
-                    BinaryOp::Sub => vec![Inst::Sub(rd, rs1, rs2)],
-                    BinaryOp::Mul => vec![Inst::Mul(rd, rs1, rs2)],
-                    BinaryOp::Div => vec![Inst::Div(rd, rs1, rs2)],
-                    BinaryOp::Mod => vec![Inst::Rem(rd, rs1, rs2)],
-                    BinaryOp::Lt => vec![Inst::Slt(rd, rs1, rs2)],
-                    BinaryOp::Gt => vec![Inst::Sgt(rd, rs1, rs2)],
-                    BinaryOp::And => vec![Inst::And(rd, rs1, rs2)],
-                    BinaryOp::Or => vec![Inst::Or(rd, rs1, rs2)],
-                    BinaryOp::Xor => vec![Inst::Xor(rd, rs1, rs2)],
-                    BinaryOp::Shl => vec![Inst::Sll(rd, rs1, rs2)],
-                    BinaryOp::Shr => vec![Inst::Srl(rd, rs1, rs2)],
-                    BinaryOp::Sar => vec![Inst::Sra(rd, rs1, rs2)],
+    type AsmTarget = AsmLocal;
 
-                    BinaryOp::Eq => vec![
-                        // a == b => (a ^ b) == 0
-                        Inst::Xor(rd, rs1, rs2),
-                        Inst::SeqZ(rd, rd),
-                    ],
-                    BinaryOp::NotEq => vec![
-                        // a != b => (a ^ b) != 0
-                        Inst::Xor(rd, rs1, rs2),
-                        Inst::SneZ(rd, rd),
-                    ],
-                    BinaryOp::Ge => vec![
-                        // a >= b => (a < b) == 0
-                        Inst::Slt(rd, rs1, rs2),
-                        Inst::SeqZ(rd, rd),
-                    ],
-                    BinaryOp::Le => vec![
-                        // a <= b => (a > b) == 0
-                        Inst::Sgt(rd, rs1, rs2),
-                        Inst::SeqZ(rd, rd),
-                    ],
-                };
-                env.asm.extend(insts);
-                let pack = RegPack::new(rd);
-                env.man.new_val_with_src(self, pack, env.asm)?;
-            }
-            ValueKind::Return(ret) => {
-                if let Some(value) = ret.value() {
-                    let e = value.into_element(&env.ctx);
-                    let mut pack = RegPack::new(registers::A0);
-                    env.man.load_to(&e, &mut pack)?;
-                    env.man.write_pack(pack, env.asm);
-                }
-                env.fs.epilogue(env.asm)?;
-                env.asm.push(Inst::Ret);
-            }
-            ValueKind::Jump(jump) => {
-                let label = jump.target();
-                env.asm.push(Inst::J(env.label_gen.get_name(label)));
-            }
-            ValueKind::Branch(branch) => {
-                let pack = env.new_pack(branch.cond())?;
-                let rs = pack.reg;
-                env.man.write_pack(pack, env.asm);
-                let true_bb = branch.true_bb();
-                env.asm
-                    .push(Inst::Bnez(rs, env.label_gen.get_name(true_bb)));
-                let false_bb = branch.false_bb();
-                env.asm.push(Inst::J(env.label_gen.get_name(false_bb)));
-            }
-            ValueKind::Call(call) => {
-                for (index, &p) in call.args().iter().enumerate() {
-                    let param = env.ctx.to_ptr(p);
-                    env.man.save_func_param(index, param, env.asm)?;
-                }
-                let func_data = env.ctx.program.func(call.callee());
-                let ident = original_ident(&func_data.name().to_string());
-                env.asm.push(Inst::Call(ident));
-                let is_unit = match func_data.ty().kind() {
-                    TypeKind::Function(_, ret) => ret.is_unit(),
-                    _ => unreachable!("Call callee should always be a function"),
-                };
-                if !is_unit {
-                    let reg = env.man.new_val(self);
-                    env.asm.push(Inst::Mv(reg, registers::A0));
-                }
-            }
-            ValueKind::GetElemPtr(ptr) => {
-                let value = env.ctx.func_data().dfg().values().get(&ptr.src());
-                let ty = match value {
-                    Some(v) => v.ty().clone(),
-                    None => env.ctx.program.borrow_value(ptr.src()).ty().clone(),
-                };
-                let size = match ty.kind() {
-                    TypeKind::Pointer(p) => match p.kind() {
-                        TypeKind::Array(a, _) => a.size(),
-                        _ => unreachable!("GetElemPtr source pointer should be an array"),
-                    },
-                    _ => unreachable!("GetElemPtr source should always be a pointer"),
-                };
-                let mut pack = env.new_pack(ptr.src())?;
-                let bias = &ptr.index().into_element(&env.ctx);
-                env.man.add_bias(&mut pack, bias, size, env.asm)?;
-                env.man.new_val_with_src(self, pack, env.asm)?;
-            }
-            ValueKind::GetPtr(ptr) => {
-                let ty = env.ctx.value_type(ptr.src());
-                let size = match ty.kind() {
-                    TypeKind::Pointer(p) => p.size(),
-                    _ => unreachable!("GetElemPtr source should always be a pointer"),
-                };
-                let mut pack = env.new_pack(ptr.src())?;
-                let bias = &ptr.index().into_element(&env.ctx);
-                env.man.add_bias(&mut pack, bias, size, env.asm)?;
-                env.man.new_val_with_src(self, pack, env.asm)?;
-            }
-            _ => unimplemented!(),
+    fn generate_on(&self, env: &mut Environment, asm: &mut AsmLocal) -> Result<(), AsmError> {
+        match self.kind() {
+            ValueKind::Alloc(alloc) => alloc.generate_on(self, env, asm),
+            ValueKind::Store(store) => store.generate_on(self, env, asm),
+            ValueKind::Load(load) => load.generate_on(self, env, asm),
+            ValueKind::Binary(binary) => binary.generate_on(self, env, asm),
+            ValueKind::Return(ret) => ret.generate_on(self, env, asm),
+            ValueKind::Jump(jump) => jump.generate_on(self, env, asm),
+            ValueKind::Branch(branch) => branch.generate_on(self, env, asm),
+            ValueKind::Call(call) => call.generate_on(self, env, asm),
+            ValueKind::GetElemPtr(elem_ptr) => elem_ptr.generate_on(self, env, asm),
+            ValueKind::GetPtr(ptr) => ptr.generate_on(self, env, asm),
+            _ => unreachable!("Valuekind cannot be an instruction: {:?}", self.kind()),
+        }
+    }
+}
+
+trait ValueGenerator {
+    fn generate_on(
+        &self,
+        ret_data: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError>;
+}
+
+impl ValueGenerator for Alloc {
+    fn generate_on(
+        &self,
+        ret_data: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let size = match ret_data.ty().kind() {
+            TypeKind::Pointer(p) => p.size(),
+            _ => unreachable!("Alloc type should always be a pointer"),
+        };
+        // malloc the data
+        let stack = env.fs.malloc(size)?;
+        // new value "self" as a pointer
+        let reg = env.man.new_reg();
+        let mut pack = InfoPack::new(reg);
+        env.man.load_ref_to(stack, &mut pack);
+        env.man.new_val_with_src(ret_data, pack, asm)
+    }
+}
+
+impl ValueGenerator for Store {
+    fn generate_on(
+        &self,
+        _: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let src = env.new_pack(self.value())?;
+        let dest = env.new_pack(self.dest())?;
+        env.man.save_deref_to(src, dest, asm);
+        Ok(())
+    }
+}
+
+impl ValueGenerator for Load {
+    fn generate_on(
+        &self,
+        ret_data: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let mut pack = env.new_pack(self.src())?;
+        env.man.load_deref_to(pack.clone(), &mut pack);
+        env.man.new_val_with_src(ret_data, pack, asm)
+    }
+}
+
+impl ValueGenerator for Binary {
+    fn generate_on(
+        &self,
+        ret_data: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let p1 = env.new_pack(self.lhs())?;
+        let p2 = env.new_pack(self.rhs())?;
+        let rs1 = p1.reg;
+        let rs2 = p2.reg;
+        p1.write_on(asm);
+        p2.write_on(asm);
+        let rd = env.man.new_reg();
+        let insts = match self.op() {
+            BinaryOp::Add => vec![Inst::Add(rd, rs1, rs2)],
+            BinaryOp::Sub => vec![Inst::Sub(rd, rs1, rs2)],
+            BinaryOp::Mul => vec![Inst::Mul(rd, rs1, rs2)],
+            BinaryOp::Div => vec![Inst::Div(rd, rs1, rs2)],
+            BinaryOp::Mod => vec![Inst::Rem(rd, rs1, rs2)],
+            BinaryOp::Lt => vec![Inst::Slt(rd, rs1, rs2)],
+            BinaryOp::Gt => vec![Inst::Sgt(rd, rs1, rs2)],
+            BinaryOp::And => vec![Inst::And(rd, rs1, rs2)],
+            BinaryOp::Or => vec![Inst::Or(rd, rs1, rs2)],
+            BinaryOp::Xor => vec![Inst::Xor(rd, rs1, rs2)],
+            BinaryOp::Shl => vec![Inst::Sll(rd, rs1, rs2)],
+            BinaryOp::Shr => vec![Inst::Srl(rd, rs1, rs2)],
+            BinaryOp::Sar => vec![Inst::Sra(rd, rs1, rs2)],
+
+            BinaryOp::Eq => vec![
+                // a == b => (a ^ b) == 0
+                Inst::Xor(rd, rs1, rs2),
+                Inst::SeqZ(rd, rd),
+            ],
+            BinaryOp::NotEq => vec![
+                // a != b => (a ^ b) != 0
+                Inst::Xor(rd, rs1, rs2),
+                Inst::SneZ(rd, rd),
+            ],
+            BinaryOp::Ge => vec![
+                // a >= b => (a < b) == 0
+                Inst::Slt(rd, rs1, rs2),
+                Inst::SeqZ(rd, rd),
+            ],
+            BinaryOp::Le => vec![
+                // a <= b => (a > b) == 0
+                Inst::Sgt(rd, rs1, rs2),
+                Inst::SeqZ(rd, rd),
+            ],
+        };
+        asm.insts_mut().extend(insts);
+        let pack = InfoPack::new(rd);
+        env.man.new_val_with_src(ret_data, pack, asm)
+    }
+}
+
+impl ValueGenerator for Return {
+    fn generate_on(
+        &self,
+        _: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        if let Some(value) = self.value() {
+            let e = value.into_element(&env.ctx);
+            let mut pack = InfoPack::new(registers::A0);
+            env.man.load_to(&e, &mut pack)?;
+            pack.write_on(asm);
+        }
+        env.fs.build_epilogue(asm)?;
+        asm.insts_mut().push(Inst::Ret);
+        Ok(())
+    }
+}
+
+impl ValueGenerator for Jump {
+    fn generate_on(
+        &self,
+        _: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let label = self.target();
+        asm.insts_mut().push(Inst::J(env.label_gen.get_name(label)));
+        Ok(())
+    }
+}
+
+impl ValueGenerator for Branch {
+    fn generate_on(
+        &self,
+        _: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let pack = env.new_pack(self.cond())?;
+        let rs = pack.reg;
+        pack.write_on(asm);
+        let true_bb = self.true_bb();
+        asm.insts_mut()
+            .push(Inst::Bnez(rs, env.label_gen.get_name(true_bb)));
+        let false_bb = self.false_bb();
+        asm.insts_mut()
+            .push(Inst::J(env.label_gen.get_name(false_bb)));
+        Ok(())
+    }
+}
+
+impl ValueGenerator for Call {
+    fn generate_on(
+        &self,
+        ret_data: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        for (index, &p) in self.args().iter().enumerate() {
+            let param = env.ctx.to_ptr(p);
+            env.man.save_func_param(index, param, asm)?;
+        }
+        let func_data = env.ctx.program.func(self.callee());
+        let ident = original_ident(&func_data.name().to_string());
+        asm.insts_mut().push(Inst::Call(ident));
+        let is_unit = match func_data.ty().kind() {
+            TypeKind::Function(_, ret) => ret.is_unit(),
+            _ => unreachable!("Call callee should always be a function"),
+        };
+        if !is_unit {
+            let reg = env.man.new_val(ret_data);
+            asm.insts_mut().push(Inst::Mv(reg, registers::A0));
         }
         Ok(())
+    }
+}
+
+impl ValueGenerator for GetElemPtr {
+    fn generate_on(
+        &self,
+        ret_data: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let value = env.ctx.func_data().dfg().values().get(&self.src());
+        let ty = match value {
+            Some(v) => v.ty().clone(),
+            None => env.ctx.program.borrow_value(self.src()).ty().clone(),
+        };
+        let size = match ty.kind() {
+            TypeKind::Pointer(p) => match p.kind() {
+                TypeKind::Array(a, _) => a.size(),
+                _ => unreachable!("GetElemPtr source pointer should be an array"),
+            },
+            _ => unreachable!("GetElemPtr source should always be a pointer"),
+        };
+        let mut pack = env.new_pack(self.src())?;
+        let bias = self.index().into_element(&env.ctx);
+        env.man.add_bias(&mut pack, &bias, size, asm)?;
+        env.man.new_val_with_src(ret_data, pack, asm)
+    }
+}
+
+impl ValueGenerator for GetPtr {
+    fn generate_on(
+        &self,
+        ret_data: &ValueData,
+        env: &mut Environment,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let ty = env.ctx.value_type(self.src());
+        let size = match ty.kind() {
+            TypeKind::Pointer(p) => p.size(),
+            _ => unreachable!("GetElemPtr source should always be a pointer"),
+        };
+        let mut pack = env.new_pack(self.src())?;
+        let bias = &self.index().into_element(&env.ctx);
+        env.man.add_bias(&mut pack, bias, size, asm)?;
+        env.man.new_val_with_src(ret_data, pack, asm)
     }
 }

@@ -62,17 +62,6 @@ impl AsmGlobal {
         local.label = local.label.map(|l| self.local_namer.get_name(l));
         self.locals.push(local);
     }
-
-    pub fn find_local(&self, label: &Label) -> Option<&AsmLocal> {
-        for local in self.locals() {
-            if let Some(l) = local.label() {
-                if l == label {
-                    return Some(local);
-                }
-            }
-        }
-        None
-    }
 }
 
 impl AsmLocal {
@@ -117,30 +106,6 @@ impl AsmProgram {
 
     pub fn new_global(&mut self, glb: AsmGlobal) {
         self.globals.push(glb);
-    }
-
-    pub fn push(&mut self, inst: Inst) {
-        self.cur_local_mut().insts_mut().push(inst);
-    }
-
-    pub fn extend(&mut self, insts: Vec<Inst>) {
-        self.cur_local_mut().insts_mut().extend(insts);
-    }
-
-    pub fn cur_local(&self) -> &AsmLocal {
-        self.cur_global().locals().last().unwrap()
-    }
-
-    pub fn cur_local_mut(&mut self) -> &mut AsmLocal {
-        self.cur_global_mut().locals_mut().last_mut().unwrap()
-    }
-
-    pub fn cur_global(&self) -> &AsmGlobal {
-        self.globals().last().unwrap()
-    }
-
-    pub fn cur_global_mut(&mut self) -> &mut AsmGlobal {
-        self.globals_mut().last_mut().unwrap()
     }
 
     pub fn emit(&self, mut output: impl io::Write) -> io::Result<()> {

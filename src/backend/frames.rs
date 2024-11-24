@@ -1,6 +1,6 @@
 use super::instruction::*;
 use super::location::Stack;
-use super::program::AsmProgram;
+use super::program::{AsmGlobal, AsmLocal};
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
 use koopa::ir::{FunctionData, ValueKind};
@@ -51,9 +51,11 @@ impl FrameStack {
     }
 
     /// Start a new frame.
-    pub fn prologue(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
+    pub fn build_prologue(&mut self, func_data: &FunctionData, asm: &mut AsmLocal) {
+        let insts = asm.insts_mut();
+
         // add a placeholder here, waiting for update when the frame size is known.
-        asm.push(Inst::Placeholder(Self::SP_IN));
+        insts.push(Inst::Placeholder(Self::SP_IN));
 
         let mut frame = Frame::default();
 
@@ -74,25 +76,26 @@ impl FrameStack {
         self.frames.push_back(frame);
 
         if self.need_save_ra() {
-            asm.push(Inst::Placeholder(Self::SAVE_RA));
+            insts.push(Inst::Placeholder(Self::SAVE_RA));
         }
         if self.need_use_s0() {
-            asm.push(Inst::Placeholder(Self::SAVE_S0));
-            asm.push(Inst::Mv(S0, SP));
+            insts.push(Inst::Placeholder(Self::SAVE_S0));
+            insts.push(Inst::Mv(S0, SP));
         }
     }
 
     /// Mark an exit of the frame.
-    pub fn epilogue(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    pub fn build_epilogue(&mut self, asm: &mut AsmLocal) -> Result<(), AsmError> {
         // read all "call" instructions in the function
-        asm.push(Inst::Comment("-- epilogue".to_string()));
+        let insts = asm.insts_mut();
+        insts.push(Inst::Comment("-- epilogue".to_string()));
         if self.need_save_ra() {
-            asm.push(Inst::Placeholder(Self::RECOVER_RA));
+            insts.push(Inst::Placeholder(Self::RECOVER_RA));
         }
         if self.need_use_s0() {
-            asm.push(Inst::Placeholder(Self::RECOVER_S0));
+            insts.push(Inst::Placeholder(Self::RECOVER_S0));
         }
-        asm.push(Inst::Placeholder(Self::SP_OUT));
+        insts.push(Inst::Placeholder(Self::SP_OUT));
         Ok(())
     }
 
@@ -112,7 +115,7 @@ impl FrameStack {
     }
 
     /// End the frame.
-    pub fn end(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    pub fn end_fill(&mut self, asm: &mut AsmGlobal) -> Result<(), AsmError> {
         let size = self.tot_size() as i32;
         self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
         if size > MAX_STACK_SIZE as i32 {
@@ -120,7 +123,7 @@ impl FrameStack {
         }
 
         // recover the place holder
-        for local in asm.cur_global_mut().locals_mut().iter_mut().rev() {
+        for local in asm.locals_mut().iter_mut().rev() {
             for inst in local.insts_mut().iter_mut().rev() {
                 if let Inst::Placeholder(p) = inst {
                     match *p {

@@ -1,6 +1,5 @@
-use std::fmt::Debug;
-
 use super::{registers::Register, Imm12, Imm32};
+use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 pub type Label = String;
 
@@ -242,7 +241,7 @@ impl Inst {
 }
 
 impl Debug for Inst {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.dump())
     }
 }

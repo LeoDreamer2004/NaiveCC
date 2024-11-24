@@ -1,6 +1,5 @@
-use koopa::ir::{entities::ValueData, ValueKind};
-
 use super::registers::Register;
+use koopa::ir::{entities::ValueData, ValueKind};
 
 pub type Pointer = *const ValueData;
 

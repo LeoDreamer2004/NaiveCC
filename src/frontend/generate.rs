@@ -53,15 +53,19 @@ pub enum AstError {
 /// Trait which should be implemented by AST types to generate IR
 ///
 /// Return a value of type `T` if needed
-pub trait GenerateIr<T> {
+pub trait GenerateIr {
+    type IrTarget;
+
     /// Generate IR on the given env
     ///
     /// # Errors
     /// Returns an [`ParseError`] if the generation fails
-    fn generate_on(&self, env: &mut Environment) -> Result<T, AstError>;
+    fn generate_on(&self, env: &mut Environment) -> Result<Self::IrTarget, AstError>;
 }
 
-impl GenerateIr<()> for CompUnit {
+impl GenerateIr for CompUnit {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         set_up_builtins(env);
 
@@ -79,7 +83,9 @@ impl GenerateIr<()> for CompUnit {
     }
 }
 
-impl GenerateIr<()> for FuncDef {
+impl GenerateIr for FuncDef {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         env.syb_table.enter_scope();
 
@@ -120,7 +126,9 @@ impl GenerateIr<()> for FuncDef {
     }
 }
 
-impl GenerateIr<()> for Decl {
+impl GenerateIr for Decl {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         match self {
             Decl::ConstDecl(const_decl) => const_decl.generate_on(env),
@@ -129,7 +137,9 @@ impl GenerateIr<()> for Decl {
     }
 }
 
-impl GenerateIr<()> for Block {
+impl GenerateIr for Block {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         if self.block_items.is_empty() {
             return Ok(());
@@ -165,7 +175,9 @@ impl GenerateIr<()> for Block {
     }
 }
 
-impl GenerateIr<()> for Stmt {
+impl GenerateIr for Stmt {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         match self {
             Stmt::Empty => Ok(()),
@@ -181,7 +193,9 @@ impl GenerateIr<()> for Stmt {
     }
 }
 
-impl GenerateIr<Value> for LVal {
+impl GenerateIr for LVal {
+    type IrTarget = Value;
+
     /// Returns the address of the left value
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match env.syb_table.lookup_item(&self.ident) {
@@ -222,7 +236,9 @@ impl GenerateIr<Value> for LVal {
     }
 }
 
-impl GenerateIr<()> for Return {
+impl GenerateIr for Return {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let ret = match &self.exp {
             Some(exp) => Some(exp.generate_on(env)?),
@@ -234,7 +250,9 @@ impl GenerateIr<()> for Return {
     }
 }
 
-impl GenerateIr<()> for Assign {
+impl GenerateIr for Assign {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let alloc = self.l_val.generate_on(env)?;
         let value = self.exp.generate_on(env)?;
@@ -244,7 +262,9 @@ impl GenerateIr<()> for Assign {
     }
 }
 
-impl GenerateIr<()> for If {
+impl GenerateIr for If {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let cond = self.cond.generate_on(env)?;
         let base_bb = env.block.unwrap();
@@ -277,7 +297,9 @@ impl GenerateIr<()> for If {
     }
 }
 
-impl GenerateIr<()> for While {
+impl GenerateIr for While {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let block = env.block.unwrap();
         let cond_bb = if env.in_entry() {
@@ -323,7 +345,9 @@ impl GenerateIr<()> for While {
     }
 }
 
-impl GenerateIr<()> for Break {
+impl GenerateIr for Break {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let end_bb = env
             .loop_stack
@@ -336,7 +360,9 @@ impl GenerateIr<()> for Break {
     }
 }
 
-impl GenerateIr<()> for Continue {
+impl GenerateIr for Continue {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let cond_bb = env
             .loop_stack
@@ -349,7 +375,9 @@ impl GenerateIr<()> for Continue {
     }
 }
 
-impl GenerateIr<()> for ConstDecl {
+impl GenerateIr for ConstDecl {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         for const_def in self.const_defs.clone() {
             let item = env.syb_table.new_symbol(&const_def)?;
@@ -368,7 +396,9 @@ impl GenerateIr<()> for ConstDecl {
     }
 }
 
-impl GenerateIr<()> for VarDecl {
+impl GenerateIr for VarDecl {
+    type IrTarget = ();
+
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         for var_def in self.var_defs.clone() {
             let item = env.syb_table.new_symbol(&var_def)?;
@@ -387,7 +417,9 @@ impl GenerateIr<()> for VarDecl {
     }
 }
 
-impl GenerateIr<Value> for LValAssign {
+impl GenerateIr for LValAssign {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         let symbol = env
             .syb_table
@@ -406,7 +438,9 @@ impl GenerateIr<Value> for LValAssign {
     }
 }
 
-impl GenerateIr<Value> for Exp {
+impl GenerateIr for Exp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         if let Ok(value) = self.eval(&env.syb_table) {
             return value.generate_on(env);
@@ -418,14 +452,18 @@ impl GenerateIr<Value> for Exp {
     }
 }
 
-impl GenerateIr<Value> for ConstExp {
+impl GenerateIr for ConstExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         // Const expressions must be evaluated at compile time
         self.eval(&env.syb_table)?.generate_on(env)
     }
 }
 
-impl GenerateIr<Value> for Cond {
+impl GenerateIr for Cond {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             Cond::LOrExp(exp) => exp.generate_on(env),
@@ -433,7 +471,9 @@ impl GenerateIr<Value> for Cond {
     }
 }
 
-impl GenerateIr<Value> for LOrExp {
+impl GenerateIr for LOrExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             LOrExp::LAndExp(l_and_exp) => l_and_exp.generate_on(env),
@@ -469,7 +509,9 @@ impl GenerateIr<Value> for LOrExp {
     }
 }
 
-impl GenerateIr<Value> for LAndExp {
+impl GenerateIr for LAndExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             LAndExp::EqExp(eq_exp) => eq_exp.generate_on(env),
@@ -505,7 +547,9 @@ impl GenerateIr<Value> for LAndExp {
     }
 }
 
-impl GenerateIr<Value> for EqExp {
+impl GenerateIr for EqExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             EqExp::RelExp(rel_exp) => rel_exp.generate_on(env),
@@ -520,7 +564,9 @@ impl GenerateIr<Value> for EqExp {
     }
 }
 
-impl GenerateIr<Value> for RelExp {
+impl GenerateIr for RelExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             RelExp::AddExp(add_exp) => add_exp.generate_on(env),
@@ -535,7 +581,9 @@ impl GenerateIr<Value> for RelExp {
     }
 }
 
-impl GenerateIr<Value> for AddExp {
+impl GenerateIr for AddExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             AddExp::MulExp(mul) => mul.generate_on(env),
@@ -550,7 +598,9 @@ impl GenerateIr<Value> for AddExp {
     }
 }
 
-impl GenerateIr<Value> for MulExp {
+impl GenerateIr for MulExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             MulExp::UnaryExp(unary) => unary.generate_on(env),
@@ -565,7 +615,9 @@ impl GenerateIr<Value> for MulExp {
     }
 }
 
-impl GenerateIr<Value> for UnaryExp {
+impl GenerateIr for UnaryExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             UnaryExp::PrimaryExp(primary_exp) => primary_exp.generate_on(env),
@@ -607,7 +659,9 @@ impl GenerateIr<Value> for UnaryExp {
     }
 }
 
-impl GenerateIr<Value> for PrimaryExp {
+impl GenerateIr for PrimaryExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             PrimaryExp::Number(number) => number.generate_on(env),
@@ -617,7 +671,9 @@ impl GenerateIr<Value> for PrimaryExp {
     }
 }
 
-impl GenerateIr<Value> for LValExp {
+impl GenerateIr for LValExp {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match env
             .syb_table
@@ -661,7 +717,9 @@ impl GenerateIr<Value> for LValExp {
     }
 }
 
-impl GenerateIr<Value> for Number {
+impl GenerateIr for Number {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match self {
             Number::Int(int) => int.generate_on(env),
@@ -669,7 +727,9 @@ impl GenerateIr<Value> for Number {
     }
 }
 
-impl GenerateIr<Value> for i32 {
+impl GenerateIr for i32 {
+    type IrTarget = Value;
+
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         let int = env.local_value().integer(*self);
         Ok(int)

@@ -1,10 +1,8 @@
 use super::instruction::*;
 use super::location::{AsmElement, Data, Location, Pointer, Stack, ToLocation};
-use super::program::{AsmGlobal, AsmLocal, AsmProgram};
+use super::program::AsmLocal;
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
-use crate::utils::namer::original_ident;
-use koopa::ir::FunctionData;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -23,19 +21,23 @@ pub struct AsmManager {
 }
 
 #[derive(Debug, Clone)]
-pub struct RegPack {
+pub struct InfoPack {
     pub reg: Register,
     pub refer: Option<Stack>,
     pub insts: Vec<Inst>,
 }
 
-impl RegPack {
+impl InfoPack {
     pub fn new(reg: Register) -> Self {
         Self {
             reg,
             refer: None,
             insts: Vec::new(),
         }
+    }
+
+    pub fn write_on(self, asm: &mut AsmLocal) {
+        asm.insts_mut().extend(self.insts);
     }
 }
 
@@ -84,21 +86,13 @@ impl AsmManager {
             .ok_or(AsmError::NullLocation(format!("{ptr:?}")))
     }
 
-    pub fn new_func(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
-        let label = original_ident(&func_data.name().to_string());
+    pub fn new_func_idx(&mut self) -> usize {
         self.func_index += 1;
-        let mut glb = AsmGlobal::new(Directive::Text, label);
-        let label = format!(".prologue_{}", self.func_index);
-        glb.new_local(AsmLocal::new(Some(label)));
-        asm.new_global(glb);
+        self.func_index
     }
 
     pub fn end_func(&mut self) {
         self.map = self.glb_map.clone();
-    }
-
-    pub fn write_pack(&mut self, pack: RegPack, asm: &mut AsmProgram) {
-        asm.extend(pack.insts);
     }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
@@ -121,8 +115,8 @@ impl AsmManager {
     pub fn new_val_with_src(
         &mut self,
         ptr: Pointer,
-        src: RegPack,
-        asm: &mut AsmProgram,
+        src: InfoPack,
+        asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let address = src.reg.to_loc();
         self.add_loc(ptr, address);
@@ -133,87 +127,89 @@ impl AsmManager {
     pub fn save_val_to(
         &mut self,
         dest: Pointer,
-        src: RegPack,
-        asm: &mut AsmProgram,
+        src: InfoPack,
+        asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let rs = src.reg;
         *self.refer_mut(dest)? = src.refer.clone();
-        self.write_pack(src, asm);
+        src.write_on(asm);
+        let insts = asm.insts_mut();
 
         match self.loc(dest)? {
             Location::Register(reg) => {
                 if *reg == rs {
                     return Ok(());
                 }
-                asm.push(Inst::Mv(*reg, rs));
+                insts.push(Inst::Mv(*reg, rs));
             }
             Location::Stack(stack) => {
                 // save the data in the register to the stack
-                asm.push(Inst::Sw(rs, stack.base, stack.offset));
+                insts.push(Inst::Sw(rs, stack.base, stack.offset));
             }
             Location::Data(data) => {
                 let label = data.label.clone();
-                asm.push(Inst::La(FREE_REG, label));
-                asm.push(Inst::Sw(rs, FREE_REG, data.offset));
+                insts.push(Inst::La(FREE_REG, label));
+                insts.push(Inst::Sw(rs, FREE_REG, data.offset));
             }
         }
         Ok(())
     }
 
-    pub fn load_imm_to(&mut self, imm: i32, dest: &mut RegPack) -> Result<(), AsmError> {
+    pub fn load_imm_to(&mut self, imm: i32, dest: &mut InfoPack) -> Result<(), AsmError> {
         // We never reuse immediate, only load it to the register.
         dest.insts.push(Inst::Li(dest.reg, imm));
         Ok(())
     }
 
     /// Build a reference to the location, and save the address to the register.
-    pub fn load_ref_to(&mut self, stack: Stack, dest: &mut RegPack) {
+    pub fn load_ref_to(&mut self, stack: Stack, dest: &mut InfoPack) {
         let reg = dest.reg;
         dest.refer = Some(stack.clone());
         dest.insts.push(Inst::Addi(reg, stack.base, stack.offset));
     }
 
     /// Load the data from the address of the src to the register.
-    pub fn load_deref_to(&mut self, src: RegPack, dest: &mut RegPack) {
+    pub fn load_deref_to(&mut self, src: InfoPack, dest: &mut InfoPack) {
         dest.insts.push(Inst::Lw(dest.reg, src.reg, 0));
     }
 
     /// Save the data in the register to the address of the dest.
-    pub fn save_deref_to(&mut self, src: RegPack, dest: RegPack, asm: &mut AsmProgram) {
+    pub fn save_deref_to(&mut self, src: InfoPack, dest: InfoPack, asm: &mut AsmLocal) {
         let rs1 = src.reg;
         let rs2 = dest.reg;
-        self.write_pack(src, asm);
+        src.write_on(asm);
         match &dest.refer {
             Some(stack) => {
-                asm.push(Inst::Sw(rs1, stack.base, stack.offset));
+                asm.insts_mut()
+                    .push(Inst::Sw(rs1, stack.base, stack.offset));
             }
             None => {
-                self.write_pack(dest, asm);
-                asm.push(Inst::Sw(rs1, rs2, 0));
+                dest.write_on(asm);
+                asm.insts_mut().push(Inst::Sw(rs1, rs2, 0));
             }
         }
     }
 
     pub fn add_bias(
         &mut self,
-        pack: &mut RegPack,
+        pack: &mut InfoPack,
         bias: &AsmElement,
         unit_size: usize,
-        asm: &mut AsmProgram,
+        asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let reg = pack.reg;
         // TODO: Pack data has been changed
         match bias {
             AsmElement::Local(ptr) => {
                 pack.refer = None;
-                let mut p = RegPack::new(FREE_REG);
+                let mut p = InfoPack::new(FREE_REG);
                 self.load_val_to(ptr.clone(), &mut p)?;
-                self.write_pack(p, asm);
+                p.write_on(asm);
 
-                let mut p = RegPack::new(self.new_reg());
+                let mut p = InfoPack::new(self.new_reg());
                 self.load_imm_to(unit_size as i32, &mut p)?;
                 let unit = p.reg;
-                self.write_pack(p, asm);
+                p.write_on(asm);
 
                 pack.insts.push(Inst::Mul(FREE_REG, FREE_REG, unit));
                 pack.insts.push(Inst::Add(reg, reg, FREE_REG));
@@ -230,7 +226,7 @@ impl AsmManager {
     }
 
     /// Load the data from the address of the src to the register.
-    pub fn load_val_to(&mut self, src: Pointer, dest: &mut RegPack) -> Result<(), AsmError> {
+    pub fn load_val_to(&mut self, src: Pointer, dest: &mut InfoPack) -> Result<(), AsmError> {
         let dest_reg = dest.reg;
         dest.refer = self.refer(src)?.clone();
         match self.loc(src)? {
@@ -254,7 +250,7 @@ impl AsmManager {
         Ok(())
     }
 
-    pub fn load_to(&mut self, element: &AsmElement, dest: &mut RegPack) -> Result<(), AsmError> {
+    pub fn load_to(&mut self, element: &AsmElement, dest: &mut InfoPack) -> Result<(), AsmError> {
         match element {
             AsmElement::Local(ptr) => self.load_val_to(*ptr, dest),
             AsmElement::Imm(imm) => self.load_imm_to(*imm, dest),
@@ -288,21 +284,22 @@ impl AsmManager {
         &mut self,
         index: usize,
         param: Pointer,
-        asm: &mut AsmProgram,
+        asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         // TODO: Save local variables to the stack/callee-saved registers
         let e = AsmElement::from(param);
         match Self::param_location(index) {
             Location::Register(reg) => {
-                let mut pack = RegPack::new(reg);
+                let mut pack = InfoPack::new(reg);
                 self.load_to(&e, &mut pack)?;
-                self.write_pack(pack, asm);
+                pack.write_on(asm);
             }
             Location::Stack(stack) => {
-                let mut pack = RegPack::new(FREE_REG);
+                let mut pack = InfoPack::new(FREE_REG);
                 self.load_to(&e, &mut pack)?;
-                self.write_pack(pack, asm);
-                asm.push(Inst::Sw(FREE_REG, stack.base, stack.offset));
+                pack.write_on(asm);
+                asm.insts_mut()
+                    .push(Inst::Sw(FREE_REG, stack.base, stack.offset));
             }
             Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
         }
