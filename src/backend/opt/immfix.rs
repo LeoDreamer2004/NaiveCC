@@ -61,6 +61,11 @@ impl Optimizer for ImmFixOptimizer {
                         csr.insert(Inst::Sw(rd, FREE_REG, 0));
                     }
                 }
+                Inst::Mv(rd, rs) => {
+                    if rd == rs {
+                        csr.remove_cur();
+                    }
+                }
                 _ => {}
             }
             csr.next();

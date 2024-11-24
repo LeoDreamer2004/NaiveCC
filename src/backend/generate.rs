@@ -1,6 +1,7 @@
 use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
 use super::instruction::*;
+use super::location::ToLocation;
 use super::manager::RegPack;
 use super::opt::AsmOptimizeManager;
 use super::program::{AsmGlobal, AsmLocal, AsmProgram};
@@ -142,7 +143,7 @@ impl GenerateAsm for ValueData {
                     _ => unreachable!("Alloc type should always be a pointer"),
                 };
                 // malloc the data
-                let location = env.fs.malloc(size)?;
+                let location = env.fs.malloc(size)?.to_loc();
                 // new value "self" as a pointer
                 let reg = env.man.new_reg();
                 let mut pack = RegPack::new(reg);
@@ -241,8 +242,8 @@ impl GenerateAsm for ValueData {
                     _ => unreachable!("Call callee should always be a function"),
                 };
                 if !is_unit {
-                    let mut pack = RegPack::new(registers::A0);
-                    env.man.new_val_with_src(self, &mut pack, env.asm)?;
+                    let reg = env.man.new_val(self, env.asm);
+                    env.asm.push(Inst::Mv(reg, registers::A0));
                 }
             }
             ValueKind::GetElemPtr(ptr) => {

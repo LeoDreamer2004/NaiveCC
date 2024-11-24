@@ -1,8 +1,10 @@
-use super::flow::{FunctionFlowGraph, LiveVariableAnalyser, UseDefParser};
+use super::dataflow::{FunctionFlowGraph, LiveVariableAnalyser, UseDefParser};
 use super::frames::FrameStack;
 use super::instruction::Inst;
+use super::location::Stack;
 use super::program::{AsmGlobal, AsmLocal};
 use super::registers::{FakeRegister, Register, RegisterType};
+use super::INT_SIZE;
 use heuristic_graph_coloring::{color_greedy_dsatur, VecVecGraph};
 use std::collections::{HashMap, HashSet};
 
@@ -16,16 +18,29 @@ pub struct RegisterAssigner;
 /// This dispatcher is used to dispatch the registers for the values.
 impl RegisterAssigner {
     pub fn assign(&mut self, asm: &mut AsmGlobal, fs: &mut FrameStack) {
-        let mut flow = FunctionFlowGraph::default();
-        flow.build(asm);
-        let mut parser = UseDefParser::default();
-        parser.parse(asm);
-        let mut analyser = LiveVariableAnalyser::default();
-        analyser.analyse(&flow, &parser);
-        let mut graph = RegisterInterferenceGraph::default();
-        graph.build(asm, &analyser);
-        let mut rewriter = RegisterRewriter::new(graph);
-        rewriter.save_on(asm, fs);
+        loop {
+            let mut flow = FunctionFlowGraph::default();
+            flow.build(asm);
+            let mut parser = UseDefParser::default();
+            parser.parse(asm);
+            let mut analyser = LiveVariableAnalyser::default();
+            analyser.analyse(&flow, &parser);
+            let mut graph = RegisterInterferenceGraph::default();
+            graph.build(asm, &analyser);
+            let mut allocator = MemoryAllocator::default();
+            let ok = allocator.alloc(asm, fs, &graph);
+            if ok {
+                let mut parser = UseDefParser::default();
+                parser.parse(asm);
+                let mut analyser = LiveVariableAnalyser::default();
+                analyser.analyse(&flow, &parser);
+                let mut graph = RegisterInterferenceGraph::default();
+                graph.build(asm, &analyser);
+                let mut writer = RegisterRewriter::new_on(graph);
+                writer.save_on(asm, fs, analyser);
+                break;
+            }
+        }
     }
 }
 
@@ -35,6 +50,7 @@ struct RegisterInterferenceGraph {
     fake_regs: HashSet<usize>,
     graph: VecVecGraph,
     color_map: HashMap<usize, Color>,
+    good_colors: Vec<Color>,
 }
 
 impl Default for RegisterInterferenceGraph {
@@ -43,25 +59,39 @@ impl Default for RegisterInterferenceGraph {
             fake_regs: HashSet::new(),
             graph: VecVecGraph::new(0),
             color_map: HashMap::new(),
+            good_colors: Vec::new(),
         }
     }
 }
 
 impl RegisterInterferenceGraph {
-    fn true_reg(&self, reg: &FakeRegister) -> Register {
-        let color = self.color_map.get(&Self::to_idx(reg)).unwrap();
+    const COLOR_NUM: usize = 6;
+
+    fn real_reg(&self, reg: &FakeRegister) -> Register {
+        let color = *self.color_map.get(&Self::to_idx(reg)).unwrap();
+        let idx = self.color_idx(color).expect("Bad color");
         // TODO: Maybe not only use Temp registers?
-        RegisterType::all(&RegisterType::Temp)[color % 6]
+        RegisterType::all(&RegisterType::Temp)[idx]
     }
 
-    fn conflict(&self, reg1: &FakeRegister, reg2: &FakeRegister) -> bool {
-        self.color_map[&Self::to_idx(reg1)] == self.color_map[&Self::to_idx(reg2)]
+    fn need_space(&self, reg: &FakeRegister) -> bool {
+        !self.good_colors[..Self::COLOR_NUM - 2]
+            .contains(self.color_map.get(&Self::to_idx(reg)).unwrap())
+    }
+
+    fn has_space(&self, reg: &FakeRegister) -> bool {
+        self.good_colors
+            .contains(self.color_map.get(&Self::to_idx(reg)).unwrap())
     }
 
     fn build(&mut self, asm: &AsmGlobal, analyser: &LiveVariableAnalyser) {
         self.build_points(asm);
         self.build_edges(asm, analyser);
         self.color();
+    }
+
+    fn fake_regs(&self) -> &HashSet<usize> {
+        &self.fake_regs
     }
 
     fn build_points(&mut self, asm: &AsmGlobal) {
@@ -88,49 +118,61 @@ impl RegisterInterferenceGraph {
 
     fn build_edges(&mut self, asm: &AsmGlobal, lva: &LiveVariableAnalyser) {
         for (l, insts) in asm.labeled_locals() {
-            let mut has_built = HashSet::new();
-            for (i, inst) in insts.iter().enumerate() {
+            let mut active_set = lva.outs(l).clone();
+            for inst in insts.iter().rev() {
                 if let Some(reg) = inst.dest_reg() {
-                    if !matches!(reg, Register::Fake(_)) || !has_built.insert(reg) {
-                        continue;
-                    }
-                    if lva.outs(l).contains(&reg) {
-                        // if the register is an out-register
-
-                        // all out-registers are interferences
-                        for r in lva.outs(l) {
-                            self.add_edge(&reg, &r);
-                        }
-                        // the next instructions are also interferences
-                        for inst in insts.iter().skip(i) {
-                            self.add_all_edges(&reg, inst);
-                        }
-                    } else {
-                        // if the register is not an out-register
-
-                        // here come interferences until the register is not used
-                        let mut used = false;
-                        for inst in insts.iter().skip(i).rev() {
-                            if inst.src_regs().contains(&reg) {
-                                used = true;
-                            } else if inst.dest_reg() == Some(reg) {
-                                used = false;
-                            }
-                            if used {
-                                self.add_all_edges(&reg, inst);
-                            }
-                        }
+                    active_set.remove(&reg);
+                    for r in &active_set {
+                        self.add_edge(reg, r);
                     }
                 }
+                for reg in inst.src_regs() {
+                    active_set.insert(reg.clone());
+                }
+                self.add_edges_in_set(&active_set);
+            }
+            assert_eq!(&active_set, lva.ins(l));
+        }
+    }
+
+    fn add_edges_in_set(&mut self, set: &HashSet<Register>) {
+        for reg1 in set {
+            for reg2 in set {
+                self.add_edge(reg1, reg2);
             }
         }
     }
 
     fn color(&mut self) {
         let color = color_greedy_dsatur(&self.graph);
+
         for reg_idx in &self.fake_regs {
             self.color_map.insert(*reg_idx, color[*reg_idx]);
         }
+        self.choose_best_color(color);
+    }
+
+    fn choose_best_color(&mut self, color: Vec<Color>) {
+        let color_count = color.iter().fold(HashMap::new(), |mut acc, x| {
+            *acc.entry(x).or_insert(0) += 1;
+            acc
+        });
+        let mut color_count: Vec<_> = color_count.into_iter().collect();
+        color_count.sort_by_key(|(_, v)| -(*v as i32));
+        self.good_colors = color_count
+            .iter()
+            .take(Self::COLOR_NUM)
+            .map(|(k, _)| **k)
+            .collect();
+
+        // extend the good colors to the size of the color
+        for _ in 0..(Self::COLOR_NUM as i32 - self.good_colors.len() as i32) {
+            self.good_colors.push(0);
+        }
+    }
+
+    fn color_idx(&self, color: Color) -> Option<usize> {
+        self.good_colors.iter().position(|&c| c == color)
     }
 
     fn to_idx(reg: &FakeRegister) -> usize {
@@ -146,43 +188,245 @@ impl RegisterInterferenceGraph {
             }
         }
     }
+}
 
-    fn add_all_edges(&mut self, from: &Register, to: &Inst) {
-        for reg in to.regs() {
-            self.add_edge(from, reg);
+/// Allocate memory for those values that are not in registers.
+#[derive(Default)]
+struct MemoryAllocator {
+    loc_map: HashMap<FakeRegister, Stack>,
+    reg_idx: usize,
+}
+
+impl MemoryAllocator {
+    pub fn alloc(
+        &mut self,
+        asm: &mut AsmGlobal,
+        fs: &mut FrameStack,
+        graph: &RegisterInterferenceGraph,
+    ) -> bool {
+        self.reg_idx = graph.fake_regs().iter().max().unwrap_or(&0) + 1;
+
+        let mut res = AsmGlobal::new_from(asm);
+        let mut ok = true;
+        for local in asm.locals() {
+            let mut res_l = AsmLocal::new_from(local);
+            for inst in local.insts() {
+                let mut res_inst = inst.clone();
+                let dest = inst.dest_reg().cloned();
+                let mut save_inst = None;
+                for reg in res_inst.regs_mut() {
+                    let is_dest = Some(*reg) == dest;
+                    if let Register::Fake(fake) = reg {
+                        if graph.need_space(fake) {
+                            if !graph.has_space(fake) {
+                                ok = false;
+                            }
+                            if is_dest {
+                                save_inst = Some(self.save_to_stack(fake.clone(), fs));
+                            } else {
+                                let (r, i) = self.load_from_stack(fake, fs);
+                                *reg = r;
+                                res_l.insts_mut().push(i);
+                            }
+                        }
+                    }
+                }
+                res_l.insts_mut().push(res_inst);
+                if let Some(inst) = save_inst {
+                    res_l.insts_mut().push(inst);
+                }
+            }
+            res.new_local(res_l);
+        }
+        *asm = res;
+
+        ok
+    }
+
+    fn new_reg(&mut self) -> Register {
+        let reg = Register::Fake(FakeRegister(self.reg_idx));
+        self.reg_idx += 1;
+        reg
+    }
+
+    fn save_to_stack(&mut self, fake: FakeRegister, fs: &mut FrameStack) -> Inst {
+        let loc = self.get_alloc(&fake, fs);
+        Inst::Sw(Register::Fake(fake), loc.base, loc.offset)
+    }
+
+    fn load_from_stack(&mut self, fake: &FakeRegister, fs: &mut FrameStack) -> (Register, Inst) {
+        let reg = self.new_reg();
+        let loc = self.get_alloc(fake, fs);
+        (reg, Inst::Lw(reg, loc.base, loc.offset))
+    }
+
+    fn get_alloc(&mut self, fake: &FakeRegister, fs: &mut FrameStack) -> Stack {
+        match self.loc_map.get(fake) {
+            Some(loc) => loc.clone(),
+            None => {
+                let loc = fs.malloc(INT_SIZE).unwrap();
+                self.loc_map.insert(*fake, loc.clone());
+                loc
+            }
         }
     }
 }
 
 struct RegisterRewriter {
     graph: RegisterInterferenceGraph,
+    loc_map: HashMap<Register, Stack>,
 }
 
 impl RegisterRewriter {
-    fn new(graph: RegisterInterferenceGraph) -> Self {
-        Self { graph }
-    }
-
-    fn save_on(&mut self, asm: &mut AsmGlobal, fs: &mut FrameStack) {
-        let mut res = AsmGlobal::new_from(asm);
-        for local in asm.locals() {
-            let mut res_l = AsmLocal::new_from(local);
-            for inst in local.insts() {
-                let res_i = self.replace_reg(inst);
-                res_l.insts_mut().extend(res_i);
-            }
-            res.new_local(res_l);
+    fn new_on(graph: RegisterInterferenceGraph) -> Self {
+        Self {
+            graph,
+            loc_map: HashMap::new(),
         }
-        *asm = res;
     }
 
-    fn replace_reg(&self, inst: &Inst) -> Vec<Inst> {
+    fn save_on(
+        &mut self,
+        asm: &mut AsmGlobal,
+        fs: &mut FrameStack,
+        analyser: LiveVariableAnalyser,
+    ) {
+        for local in asm.locals_mut().iter_mut().rev() {
+            if let Some(label) = local.label().clone() {
+                let mut res = AsmLocal::new_from(local);
+                let insts = res.insts_mut();
+
+                let mut active_set = analyser.outs(&label).clone();
+
+                // Do everying in reverse order!
+                for inst in local.insts_mut().iter_mut().rev() {
+                    // Update the active set
+                    for reg in inst.regs() {
+                        active_set.insert(reg.clone());
+                    }
+                    if let Some(reg) = inst.dest_reg() {
+                        active_set.remove(&reg);
+                    }
+
+                    // Recover the registers when meet a call
+                    if let Inst::Call(_) = inst {
+                        for reg in &active_set {
+                            if let Some(inst) = self.load_from_stack(reg.clone(), fs) {
+                                insts.push(inst);
+                            }
+                        }
+                    }
+
+                    // Rewrite the registers
+                    insts.push(self.update_inst(inst));
+
+                    // Save the registers before the jump / call
+                    let empty = &HashSet::new();
+                    let to_store = match inst {
+                        Inst::J(l) => analyser.ins(l),
+                        Inst::Beqz(_, l) => analyser.ins(l),
+                        Inst::Bnez(_, l) => analyser.ins(l),
+                        Inst::Call(_) => &active_set,
+                        _ => empty,
+                    };
+
+                    for reg in to_store {
+                        if let Some(inst) = self.save_to_stack(*reg, fs) {
+                            insts.push(inst);
+                        }
+                    }
+                }
+
+                for reg in analyser.ins(&label) {
+                    if let Some(inst) = self.load_from_stack(*reg, fs) {
+                        insts.push(inst);
+                    }
+                }
+
+                insts.reverse();
+                *local = res;
+            }
+        }
+    }
+
+    fn update_inst(&mut self, inst: &Inst) -> Inst {
         let mut inst = inst.clone();
         for u_reg in inst.regs_mut() {
-            if let Register::Fake(r) = u_reg {
-                *u_reg = self.graph.true_reg(r);
+            if let Register::Fake(fake) = u_reg {
+                let real = self.graph.real_reg(fake);
+                *u_reg = real;
             }
         }
-        vec![inst]
+        inst
     }
+
+    fn load_from_stack(&mut self, reg: Register, fs: &mut FrameStack) -> Option<Inst> {
+        let real = match &reg {
+            Register::Fake(fake) => self.graph.real_reg(fake),
+            _ => return None,
+        };
+
+        let loc = self.get_alloc(&reg, fs);
+        Some(Inst::Lw(real, loc.base, loc.offset))
+    }
+
+    fn save_to_stack(&mut self, reg: Register, fs: &mut FrameStack) -> Option<Inst> {
+        let real = match &reg {
+            Register::Fake(fake) => self.graph.real_reg(fake),
+            _ => return None,
+        };
+        let loc = self.get_alloc(&reg, fs);
+        Some(Inst::Sw(real, loc.base, loc.offset))
+    }
+
+    fn get_alloc(&mut self, reg: &Register, fs: &mut FrameStack) -> Stack {
+        match self.loc_map.get(reg) {
+            Some(loc) => loc.clone(),
+            None => {
+                let loc = fs.malloc(INT_SIZE).unwrap();
+                self.loc_map.insert(reg.clone(), loc.clone());
+                loc
+            }
+        }
+    }
+
+    // fn replace_regs(
+    //     &mut self,
+    //     dest: Option<&Register>,
+    //     srcs: Vec<&Register>,
+    //     fs: &mut FrameStack,
+    // ) -> Vec<Inst> {
+    //     let mut res = vec![];
+    //     let mut temp = vec![];
+
+    //     for src in srcs {
+    //         if let Register::Fake(fake) = src {
+    //             temp.push((fake.clone(), false));
+    //         }
+    //     }
+    //     if let Some(Register::Fake(fake)) = dest {
+    //         temp.push((fake.clone(), true));
+    //     }
+
+    //     for (fake, is_dest) in temp {
+    //         // FIXME: Two src registers may be the same
+    //         let real = self.graph.real_reg(&fake);
+    //         if let Some(old_fake) = self.cur_use.insert(real, fake) {
+    //             if self.graph.conflict(&fake, &old_fake) {
+    //                 // When conflict happens
+
+    //                 // Save the old register to the stack
+    //                 res.push(self.save_to_stack(&old_fake, fs));
+
+    //                 if !is_dest {
+    //                     // If necessary, Load the new register from the stack
+    //                     if let Some(load) = self.load_to_stack(&fake) {
+    //                         res.push(load);
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     res
+    // }
 }

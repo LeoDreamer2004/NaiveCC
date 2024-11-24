@@ -59,7 +59,8 @@ impl DeadCodeElimination {
         }
         let res = !removed.is_empty();
         for v in removed {
-            data.dfg_mut().remove_value(v);
+            // FIXME
+            // data.dfg_mut().remove_value(v);
         }
         res
     }

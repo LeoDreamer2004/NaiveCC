@@ -1,38 +1,11 @@
 use super::instruction::*;
+use super::location::{AsmElement, Data, Location, Pointer, Stack, ToLocation};
 use super::program::{AsmGlobal, AsmLocal, AsmProgram};
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
 use crate::utils::namer::original_ident;
-use koopa::ir::entities::ValueData;
-use koopa::ir::{FunctionData, ValueKind};
+use koopa::ir::FunctionData;
 use std::collections::HashMap;
-
-pub type Pointer = *const ValueData;
-pub type Label = String;
-
-/// Stack address, which grows from high to low.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Stack {
-    pub base: Register,
-    pub offset: i32,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Data {
-    pub label: Label,
-    pub offset: i32,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-
-pub enum Location {
-    /// The data is in the register.
-    Register(Register),
-    /// The data is in the stack.
-    Stack(Stack),
-    /// The data is in the data section.
-    Data(Data),
-}
 
 #[derive(Debug, Clone)]
 pub struct PointerInfo {
@@ -43,7 +16,9 @@ pub struct PointerInfo {
 #[derive(Debug, Default)]
 pub struct AsmManager {
     map: HashMap<Pointer, PointerInfo>,
+    glb_map: HashMap<Pointer, PointerInfo>,
     reg_index: usize,
+    func_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -57,27 +32,13 @@ impl RegPack {
     }
 }
 
-/// Basic element in an instruction, including immediate value and register.
-pub enum AsmElement {
-    Local(Pointer),
-    Imm(i32),
-}
-
-impl AsmElement {
-    pub fn from(data: Pointer) -> Self {
-        unsafe {
-            match data.as_ref().unwrap().kind() {
-                ValueKind::Integer(int) => AsmElement::Imm(int.value()),
-                ValueKind::ZeroInit(_) => AsmElement::Imm(0),
-                _ => AsmElement::Local(data),
-            }
-        }
-    }
-}
-
 impl AsmManager {
     pub fn add_loc(&mut self, ptr: Pointer, loc: Location) {
         self.map.insert(ptr, PointerInfo { location: loc });
+    }
+
+    pub fn add_glb_loc(&mut self, ptr: Pointer, loc: Location) {
+        self.glb_map.insert(ptr, PointerInfo { location: loc });
     }
 
     pub fn loc(&self, ptr: Pointer) -> Result<Location, AsmError> {
@@ -91,22 +52,34 @@ impl AsmManager {
 
     pub fn new_func(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
         let label = original_ident(&func_data.name().to_string());
+        self.func_index += 1;
         let mut glb = AsmGlobal::new(Directive::Text, label);
-        glb.new_local(AsmLocal::new(Some(".prologue".to_string())));
+        glb.new_local(AsmLocal::new(Some(format!(
+            ".prologue_{}",
+            self.func_index
+        ))));
         asm.new_global(glb);
     }
 
     pub fn end_func(&mut self) {
-        self.map.clear();
+        self.map = self.glb_map.clone();
     }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
-        self.add_loc(ptr, Location::Data(Data { label, offset: 0 }));
+        let loc = Data { label, offset: 0 }.to_loc();
+        self.add_loc(ptr, loc.clone());
+        self.add_glb_loc(ptr, loc);
     }
 
     pub fn new_reg(&mut self) -> Register {
         self.reg_index += 1;
         Register::Fake(FakeRegister(self.reg_index - 1))
+    }
+
+    pub fn new_val(&mut self, ptr: Pointer, asm: &mut AsmProgram) -> Register {
+        let reg = self.new_reg();
+        self.add_loc(ptr, reg.to_loc());
+        reg
     }
 
     pub fn new_val_with_src(
@@ -115,7 +88,7 @@ impl AsmManager {
         src: &RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        let address = Location::Register(src.reg);
+        let address = src.reg.to_loc();
         self.add_loc(ptr, address);
         self.save_val_to(ptr, src, asm)
     }
@@ -148,14 +121,6 @@ impl AsmManager {
         Ok(())
     }
 
-    fn true_reg(&mut self, reg: Register) -> Register {
-        if reg == ANY_REG {
-            self.new_reg()
-        } else {
-            reg
-        }
-    }
-
     pub fn load_imm_to(
         &mut self,
         imm: i32,
@@ -164,13 +129,8 @@ impl AsmManager {
     ) -> Result<(), AsmError> {
         // We never reuse immediate, only load it to the register.
         let dest_reg = dest.reg;
-        if dest_reg == ANY_REG && imm == 0 {
-            dest.reg = ZERO;
-        } else {
-            let dest_reg = self.true_reg(dest_reg);
-            asm.push(Inst::Li(dest_reg, imm));
-            dest.reg = dest_reg;
-        }
+        asm.push(Inst::Li(dest_reg, imm));
+        dest.reg = dest_reg;
         Ok(())
     }
 
@@ -220,7 +180,7 @@ impl AsmManager {
             AsmElement::Local(ptr) => {
                 self.load_val_to(ptr.clone(), &mut RegPack::new(FREE_REG), asm)?;
 
-                let mut pack = RegPack::new(ANY_REG);
+                let mut pack = RegPack::new(self.new_reg());
                 self.load_imm_to(unit_size as i32, &mut pack, asm)?;
                 let unit = pack.reg;
 
@@ -241,12 +201,10 @@ impl AsmManager {
         dest: &mut RegPack,
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
-        let dest_reg = self.true_reg(dest.reg);
+        let dest_reg = dest.reg;
         match &self.loc(src)? {
             Location::Register(reg) => {
-                if dest.reg == ANY_REG {
-                    dest.reg = *reg;
-                } else if *reg != dest_reg {
+                if *reg != dest_reg {
                     asm.push(Inst::Mv(dest_reg, *reg));
                     dest.reg = dest_reg;
                 }
@@ -278,20 +236,20 @@ impl AsmManager {
 
     fn param_location(index: usize) -> Location {
         if index < MAX_PARAM_REG {
-            Location::Register(RegisterType::all(&RegisterType::Arg)[index])
+            RegisterType::all(&RegisterType::Arg)[index].to_loc()
         } else {
             let offset = ((index - MAX_PARAM_REG) * INT_SIZE) as i32;
-            Location::Stack(Stack { base: SP, offset })
+            Stack { base: SP, offset }.to_loc()
         }
     }
 
     pub fn load_func_param(&mut self, index: usize, param: Pointer) -> Result<(), AsmError> {
         let location = match Self::param_location(index) {
-            Location::Register(reg) => Location::Register(reg),
+            Location::Register(reg) => reg.to_loc(),
             Location::Stack(stack) => {
                 // the params are in the stack of the caller
                 let offset = stack.offset;
-                Location::Stack(Stack { base: S0, offset })
+                Stack { base: S0, offset }.to_loc()
             }
             Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
         };

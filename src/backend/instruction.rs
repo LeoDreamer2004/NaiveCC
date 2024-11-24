@@ -213,6 +213,8 @@ impl Inst {
             Inst::Sw(rs2, rs1, _) => vec![rs1, rs2],
             Inst::Add(_, rs1, rs2) => vec![rs1, rs2],
             Inst::Addi(_, rs, _) => vec![rs],
+            Inst::Beqz(rs, _) => vec![rs],
+            Inst::Bnez(rs, _) => vec![rs],
             Inst::Sub(_, rs1, rs2) => vec![rs1, rs2],
             Inst::Slt(_, rs1, rs2) => vec![rs1, rs2],
             Inst::Sgt(_, rs1, rs2) => vec![rs1, rs2],

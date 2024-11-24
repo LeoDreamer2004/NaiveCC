@@ -328,9 +328,6 @@ impl LiveVariableAnalyser {
         while changed {
             changed = false;
             for label in flow.labels() {
-                if flow.is_exit(label) {
-                    continue;
-                }
 
                 // OUT[B] = U IN[S]
                 let mut out_set = HashSet::new();
@@ -342,8 +339,8 @@ impl LiveVariableAnalyser {
                 // IN[B] = use[B] | (OUT[B] - def[B])
                 let mut in_set = parser.use_(label);
                 let out_set = self.outs[label].clone();
-                let kill_set = parser.def(label);
-                for inst in out_set.difference(&kill_set) {
+                let def_set = parser.def(label);
+                for inst in out_set.difference(&def_set) {
                     in_set.insert(inst.clone());
                 }
 
@@ -353,10 +350,13 @@ impl LiveVariableAnalyser {
                 }
             }
         }
-        // dbg!(&ins, &outs);
     }
 
-    pub fn outs(&self, label: &Label) -> HashSet<Register> {
-        self.outs.get(label).unwrap().clone()
+    pub fn ins(&self, label: &Label) -> &HashSet<Register> {
+        self.ins.get(label).unwrap()
+    }
+
+    pub fn outs(&self, label: &Label) -> &HashSet<Register> {
+        self.outs.get(label).unwrap()
     }
 }

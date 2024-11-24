@@ -4,13 +4,12 @@
 //!
 //! Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024.git
 
-use backend::{emit_asm, AsmError};
-use frontend::{build_ir, emit_ir, AstError};
+use backend::emit_asm;
+use frontend::{build_ir, emit_ir};
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::{read_to_string, File};
 use std::io;
-use std::process::exit;
 
 mod backend;
 mod frontend;
@@ -29,43 +28,8 @@ pub enum Error {
     Asm(backend::AsmError),
 }
 
-fn main() {
+fn main() -> Result<(), Error> {
     let args = parse_cmd_args().unwrap();
-    if args.debug {
-        _main(args).unwrap();
-    } else {
-        _handin(args);
-    }
-}
-
-fn _handin(args: CommandLineArgs) {
-    if let Err(e) = _main(args) {
-        match e {
-            Error::Parse => exit(60),
-            Error::Ir(err) => match err {
-                AstError::TypeError(_) => exit(70),
-                AstError::AssignError(_) => exit(71),
-                AstError::FunctionNotFoundError(_) => exit(72),
-                AstError::IllegalConstExpError(_) => exit(73),
-                AstError::SymbolNotFoundError(_) => exit(74),
-                AstError::UnknownError(_) => exit(76),
-                AstError::LoopStackError(_) => exit(77),
-                AstError::InitializeError(_) => exit(78),
-                AstError::IllegalAccessError(_) => exit(79),
-            },
-            Error::Asm(err) => match err {
-                AsmError::FunctionNotFound(_) => exit(81),
-                AsmError::InvalidStackFrame => exit(82),
-                AsmError::NullLocation(_) => exit(83),
-                AsmError::StackOverflow => exit(84),
-                AsmError::IllegalGetAddress => exit(85),
-            },
-            _ => exit(40),
-        }
-    }
-}
-
-fn _main(args: CommandLineArgs) -> Result<(), Error> {
     let input = read_to_string(args.input).map_err(Error::InvalidFile)?;
     let output = if let Some(path) = args.output {
         let file = File::create(path).map_err(Error::InvalidFile)?;

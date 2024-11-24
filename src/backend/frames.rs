@@ -1,8 +1,8 @@
-use super::manager::{Location, Stack};
+use super::instruction::*;
+use super::location::Stack;
 use super::program::AsmProgram;
 use super::registers::*;
-use super::{instruction::*, AsmError};
-use super::{INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
+use super::{AsmError, INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
 use koopa::ir::{FunctionData, ValueKind};
 use std::cmp::max;
 use std::collections::LinkedList;
@@ -37,15 +37,15 @@ impl FrameStack {
             .map_or(false, |frame| frame.param_bias > 0)
     }
 
-    /// Get the current frame.
     fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
         self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
     }
 
-    pub fn malloc(&mut self, size: usize) -> Result<Location, AsmError> {
+    /// Allocate a new memory in the stack.
+    pub fn malloc(&mut self, size: usize) -> Result<Stack, AsmError> {
         let frame = self.current_frame_mut()?;
         let offset = (frame.var_size + frame.param_bias) as i32;
-        let address = Location::Stack(Stack { base: SP, offset });
+        let address = Stack { base: SP, offset };
         frame.var_size += size;
         Ok(address)
     }
@@ -96,8 +96,7 @@ impl FrameStack {
         Ok(())
     }
 
-    /// End the frame.
-    pub fn end(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    fn tot_size(&self) -> usize {
         let mut size = 0;
         if self.need_save_ra() {
             size += INT_SIZE;
@@ -105,11 +104,17 @@ impl FrameStack {
         if self.need_use_s0() {
             size += INT_SIZE;
         }
-        let frame = self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
+        let frame = self.frames.back().unwrap();
         size += frame.var_size + frame.param_bias;
 
         // align to 16
-        let size = ((size + 15) & !15) as i32;
+        (size + 15) & !15
+    }
+
+    /// End the frame.
+    pub fn end(&mut self, asm: &mut AsmProgram) -> Result<(), AsmError> {
+        let size = self.tot_size() as i32;
+        self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
         if size > MAX_STACK_SIZE as i32 {
             return Err(AsmError::StackOverflow);
         }

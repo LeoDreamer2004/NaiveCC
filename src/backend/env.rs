@@ -1,7 +1,7 @@
 use super::frames::FrameStack;
-use super::manager::{AsmElement, AsmManager, Pointer, RegPack};
+use super::location::{AsmElement, Pointer};
+use super::manager::{AsmManager, RegPack};
 use super::program::AsmProgram;
-use super::registers::ANY_REG;
 use super::AsmError;
 use crate::utils::namer::IdGenerator;
 use koopa::ir::{entities::ValueData, BasicBlock, Function, FunctionData, Program, Type, Value};
@@ -75,7 +75,7 @@ impl<'a> Environment<'a> {
 
     pub fn new_pack(&mut self, value: Value) -> Result<RegPack, AsmError> {
         let e = value.into_element(&self.ctx);
-        let mut pack = RegPack::new(ANY_REG);
+        let mut pack = RegPack::new(self.man.new_reg());
         self.man.load_to(&e, &mut pack, &mut self.asm)?;
         Ok(pack)
     }
