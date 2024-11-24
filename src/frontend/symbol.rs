@@ -1,10 +1,9 @@
-use crate::utils::namer::{global_ident, normal_ident};
-
 use super::ast::{ConstDef, ConstExp, ConstInitVal, Exp, FuncFParam, InitVal, VarDef};
 use super::env::Environment;
 use super::eval::Eval;
 use super::generate::GenerateIr;
 use super::AstError;
+use crate::utils::namer::{global_ident, normal_ident};
 use koopa::ir::builder::{GlobalInstBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{Type, Value};
 
@@ -538,11 +537,7 @@ fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, env: &mut Enviro
     let arr_ty = gen_array_type(Type::get_i32(), bias);
     let alloc = env.local_value().alloc(arr_ty.clone());
     env.add_inst(alloc);
-    for (idx, &value) in init
-        .unfold(env.local_value().integer(0))
-        .iter()
-        .enumerate()
-    {
+    for (idx, &value) in init.unfold(env.local_value().integer(0)).iter().enumerate() {
         let mut c_idx = idx;
         let index = env.local_value().integer((c_idx / bias[1]) as i32);
         let mut ptr = env.local_value().get_elem_ptr(alloc, index);
@@ -720,6 +715,18 @@ where
             _ => Err(AstError::TypeError("Not an element".to_string())),
         }
     }
+
+    /// Parse the initializer of an array, and flatten it as [`ArrayParseResult`]   
+    ///
+    /// # Examples
+    /// To parse the following array:
+    /// ```
+    /// int a[3][3] = {{1, 2}, 3, 4, {5}, 6}
+    /// ```
+    /// After parsing, the result will be like:
+    /// ```
+    /// a = {1, 2, 0, 3, 4, 0, 5, 6, 0}
+    /// ```
     fn parse(&self, bias_stack: &Vec<usize>) -> Result<ArrayParseResult<&Self::E>, AstError> {
         if bias_stack.is_empty() {
             return Err(AstError::InitializeError(

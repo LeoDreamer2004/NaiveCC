@@ -3,6 +3,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 pub type Label = String;
 
+/// **Inst**: all the instructions in the RiscV assembly language.
 #[derive(Clone, Hash, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum Inst {
@@ -82,6 +83,7 @@ pub enum Inst {
 }
 
 impl Inst {
+    /// Write the instruction to the string.
     pub fn dump(&self) -> String {
         match self {
             Inst::Nop => String::new(),
@@ -124,6 +126,7 @@ impl Inst {
         }
     }
 
+    /// Get the registers that the instruction uses.
     pub fn regs_mut(&mut self) -> Vec<&mut Register> {
         match self {
             Inst::Nop => vec![],
@@ -166,6 +169,7 @@ impl Inst {
         }
     }
 
+    /// Get the registers that the instruction uses.
     pub fn regs(&self) -> Vec<&Register> {
         let mut regs = self.src_regs();
         if let Some(rd) = self.dest_reg() {
@@ -174,6 +178,7 @@ impl Inst {
         regs
     }
 
+    /// Get the destination register of the instruction.
     pub fn dest_reg(&self) -> Option<&Register> {
         match self {
             Inst::Lw(rd, _, _) => Some(rd),
@@ -206,6 +211,7 @@ impl Inst {
         }
     }
 
+    /// Get the source registers of the instruction.
     pub fn src_regs(&self) -> Vec<&Register> {
         match self {
             Inst::Lw(_, rs, _) => vec![rs],
@@ -246,17 +252,3 @@ impl Debug for Inst {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum Directive {
-    Text,
-    Data,
-}
-
-impl Directive {
-    pub fn dump(&self) -> String {
-        match self {
-            Directive::Text => String::from("\n.text"),
-            Directive::Data => String::from("\n.data"),
-        }
-    }
-}

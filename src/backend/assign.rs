@@ -39,7 +39,7 @@ impl RegisterAssigner {
                 let mut graph = RegisterInterferenceGraph::default();
                 graph.build(asm, &analyser);
                 let mut writer = RegisterRewriter::new_on(graph);
-                writer.save_on(asm, fs, analyser);
+                writer.write(asm, fs, analyser);
                 break;
             }
         }
@@ -48,6 +48,12 @@ impl RegisterAssigner {
 
 type Color = usize;
 
+/// Register interference graph (RIG) is used to represent the interference between the registers.
+///
+/// We first consider there are infinite registers,
+/// When two registers are used at the same time, they are considered to be in conflict,
+/// and then these two registers are given different colors.
+/// The goal is to minimize the number of colors used.
 struct RegisterInterferenceGraph {
     fake_regs: HashSet<usize>,
     graph: VecVecGraph,
@@ -81,6 +87,7 @@ impl RegisterInterferenceGraph {
             .contains(self.color_map.get(&Self::to_idx(reg)).unwrap())
     }
 
+    /// Build the interference graph when live analysis is done.
     fn build(&mut self, asm: &AsmGlobal, analyser: &LiveVariableAnalyser) {
         self.build_points(asm);
         self.build_edges(asm, analyser);
@@ -149,6 +156,7 @@ impl RegisterInterferenceGraph {
     }
 
     fn choose_best_color(&mut self, color: Vec<Color>) {
+        // greedily choose the most frequent colors
         let color_count = color.iter().fold(HashMap::new(), |mut acc, x| {
             *acc.entry(x).or_insert(0) += 1;
             acc
@@ -160,6 +168,7 @@ impl RegisterInterferenceGraph {
             .take(Self::COLOR_NUM)
             .map(|(k, _)| **k)
             .collect();
+
         // extend the good colors to the size of the color
         for _ in 0..(Self::COLOR_NUM as i32 - self.good_colors.len() as i32) {
             self.good_colors.push(0);
@@ -185,7 +194,7 @@ impl RegisterInterferenceGraph {
     }
 }
 
-/// Allocate memory for those values that are not in registers.
+/// Naive memory allocator when register assignment fails.
 #[derive(Default)]
 struct MemoryAllocator {
     loc_map: HashMap<FakeRegister, Stack>,
@@ -193,6 +202,11 @@ struct MemoryAllocator {
 }
 
 impl MemoryAllocator {
+    /// Allocate memory for those values that are not in registers.
+    ///
+    /// In [`RegisterInterferenceGraph`],
+    /// when the number of color is more than the predefined number,
+    /// allocate memory for the values that cannot be happy in registers.
     pub fn alloc(
         &mut self,
         asm: &mut AsmGlobal,
@@ -213,12 +227,13 @@ impl MemoryAllocator {
                     let is_dest = Some(*reg) == dest;
                     if let Register::Fake(fake) = reg {
                         if !graph.has_space(fake) {
-                            // if !graph.has_space(fake) {
                             ok = false;
-                            // }
+
                             if is_dest {
+                                // save the register to the stack
                                 save_inst = Some(self.save_to_stack(fake.clone(), fs));
                             } else {
+                                // load the register from the stack
                                 let (r, i) = self.load_from_stack(fake, fs);
                                 *reg = r;
                                 res_l.insts_mut().push(i);
@@ -267,6 +282,8 @@ impl MemoryAllocator {
     }
 }
 
+/// We are using [`FakeRegister`] up to now,
+/// and this rewriter is used to rewrite the registers to the real registers.
 struct RegisterRewriter {
     graph: RegisterInterferenceGraph,
     loc_map: HashMap<Register, Stack>,
@@ -280,12 +297,11 @@ impl RegisterRewriter {
         }
     }
 
-    fn save_on(
-        &mut self,
-        asm: &mut AsmGlobal,
-        fs: &mut FrameStack,
-        analyser: LiveVariableAnalyser,
-    ) {
+    /// Write the registers to the real registers.
+    ///
+    /// Note: May add some instructions to save and load the registers to the stack
+    /// when going through blocks / meeting function calls.
+    fn write(&mut self, asm: &mut AsmGlobal, fs: &mut FrameStack, analyser: LiveVariableAnalyser) {
         for local in asm.locals_mut().iter_mut().rev() {
             if let Some(label) = local.label().clone() {
                 let mut res = AsmLocal::new_from(local);
@@ -299,6 +315,7 @@ impl RegisterRewriter {
                         def_set.insert(dest.clone());
                     }
                 }
+
                 // Do everying in reverse order!
                 for inst in local.insts_mut().iter_mut().rev() {
                     // Update the active set
@@ -397,44 +414,4 @@ impl RegisterRewriter {
             }
         }
     }
-
-    // fn replace_regs(
-    //     &mut self,
-    //     dest: Option<&Register>,
-    //     srcs: Vec<&Register>,
-    //     fs: &mut FrameStack,
-    // ) -> Vec<Inst> {
-    //     let mut res = vec![];
-    //     let mut temp = vec![];
-
-    //     for src in srcs {
-    //         if let Register::Fake(fake) = src {
-    //             temp.push((fake.clone(), false));
-    //         }
-    //     }
-    //     if let Some(Register::Fake(fake)) = dest {
-    //         temp.push((fake.clone(), true));
-    //     }
-
-    //     for (fake, is_dest) in temp {
-    //         // FIXME: Two src registers may be the same
-    //         let real = self.graph.real_reg(&fake);
-    //         if let Some(old_fake) = self.cur_use.insert(real, fake) {
-    //             if self.graph.conflict(&fake, &old_fake) {
-    //                 // When conflict happens
-
-    //                 // Save the old register to the stack
-    //                 res.push(self.save_to_stack(&old_fake, fs));
-
-    //                 if !is_dest {
-    //                     // If necessary, Load the new register from the stack
-    //                     if let Some(load) = self.load_to_stack(&fake) {
-    //                         res.push(load);
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     res
-    // }
 }

@@ -1,3 +1,4 @@
+//! Data Flow Analysis for optimization.
 use super::instruction::{Inst, Label};
 use super::program::AsmGlobal;
 use super::registers::Register;
@@ -41,6 +42,9 @@ impl<'a> AsmSerializer<'a> {
     }
 }
 
+/// Flow graph for a function.
+///
+/// The graph is a directed graph, where each point is the label of a basic block.
 #[derive(Default, Debug)]
 pub struct FunctionFlowGraph {
     edges: HashMap<Label, Vec<Label>>,
@@ -259,6 +263,8 @@ impl GenKillParser {
 //         Self { ins, outs }
 //     }
 // }
+
+/// Use-Def parser for [`AsmGlobal`].
 #[derive(Debug, Default)]
 pub struct UseDefParser {
     uses: HashMap<Label, HashSet<Register>>,
@@ -266,6 +272,9 @@ pub struct UseDefParser {
 }
 
 impl UseDefParser {
+    /// Computes the **use** and **def** set for each block:
+    /// - def: Registers that are defined in the block
+    /// - use: Registers that are used (possibly before defined) in the block
     pub fn parse(&mut self, asm: &AsmGlobal) {
         self.uses.clear();
         self.defs.clear();
@@ -308,6 +317,9 @@ impl UseDefParser {
     }
 }
 
+/// Analyser for live variables.
+///
+/// Read flow from [`FunctionFlowGraph`] and use-def information from [`UseDefParser`].
 #[derive(Debug)]
 pub struct LiveVariableAnalyser {
     flow: FunctionFlowGraph,
@@ -324,6 +336,9 @@ impl LiveVariableAnalyser {
         }
     }
 
+    /// Compute the **in** and **out** set for each block:
+    /// - in: Registers should be used at the beginning of the block
+    /// - out: Registers that may be used later at the end of the block
     pub fn analyse(&mut self, parser: &UseDefParser) {
         self.ins.clear();
         self.outs.clear();
@@ -337,7 +352,6 @@ impl LiveVariableAnalyser {
         while changed {
             changed = false;
             for label in self.flow.labels() {
-
                 // OUT[B] = U IN[S]
                 let mut out_set = HashSet::new();
                 for succ in self.flow.to(label) {

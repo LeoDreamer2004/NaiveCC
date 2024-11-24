@@ -1,18 +1,25 @@
+//! Main module for generating assembly code from IR. (Backend)
+
 use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
 use super::instruction::*;
 use super::manager::InfoPack;
 use super::opt::AsmOptimizeManager;
-use super::program::{AsmGlobal, AsmLocal, AsmProgram};
+use super::program::{AsmGlobal, AsmLocal, AsmProgram, Section};
 use super::registers;
 use super::INT_SIZE;
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
 use koopa::ir::values::*;
-use koopa::ir::{BinaryOp, Function, FunctionData, Program, TypeKind, ValueKind};
+use koopa::ir::{BinaryOp, FunctionData, Program, TypeKind, ValueKind};
 use std::cell::Ref;
 use std::io;
 
+///////////////////////////////////////////
+///         Global Functions            ///
+///////////////////////////////////////////
+
+/// Generate assembly code for the given IR program.
 pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
     // generate
     let mut asm = AsmProgram::new();
@@ -25,18 +32,24 @@ pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
     Ok(asm)
 }
 
+/// Emit the assembly code to the given output.
 pub fn emit_asm(program: AsmProgram, output: impl io::Write) -> Result<(), io::Error> {
     program.emit(output)
 }
 
 #[derive(Debug)]
 pub enum AsmError {
+    /// Trying to get the address of a value that is not found.
     NullLocation(String),
-    IllegalGetAddress,
-    FunctionNotFound(Function),
+    /// Stack frame is invalid
     InvalidStackFrame,
+    /// Stack overflow
     StackOverflow,
 }
+
+///////////////////////////////////////////
+///         Entities Generator          ///
+///////////////////////////////////////////
 
 /// Trait for generating assembly code.
 ///
@@ -60,7 +73,7 @@ impl GenerateAsm for Program {
             let g_data = self.borrow_value(g_value);
             let label = g_data.name().clone().unwrap()[1..].to_string();
 
-            let mut glb = AsmGlobal::new(Directive::Data, label.clone());
+            let mut glb = AsmGlobal::new(Section::Data, label.clone());
             let mut local = AsmLocal::new(None);
 
             if let ValueKind::GlobalAlloc(alloc) = g_data.kind() {
@@ -79,7 +92,7 @@ impl GenerateAsm for Program {
             // skip declaration
             if !func_data.layout().entry_bb().is_none() {
                 let label = original_ident(&func_data.name().to_string());
-                let mut glb = AsmGlobal::new(Directive::Text, label);
+                let mut glb = AsmGlobal::new(Section::Text, label);
 
                 let label = format!(".prologue_{}", env.man.new_func_idx());
                 glb.new_local(AsmLocal::new(Some(label)));
@@ -177,7 +190,19 @@ impl GenerateAsm for ValueData {
     }
 }
 
+///////////////////////////////////////////
+///          Value Generator            ///
+///////////////////////////////////////////
+
+/// Trait for generating values.
+///
+/// This trait is implemented by all the [`ValueKind`] that can be translated into assembly code.
 trait ValueGenerator {
+    /// Generate assembly code for the value when known the return data.
+    ///
+    /// # Errors
+    ///     
+    /// AsmError is returned if the generation fails.
     fn generate_on(
         &self,
         ret_data: &ValueData,

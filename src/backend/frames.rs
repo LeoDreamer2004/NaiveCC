@@ -14,12 +14,15 @@ pub struct Frame {
     pub param_bias: usize,
 }
 
+/// Easy frame manager for function stack.
+/// Automatically generate the prologue and epilogue of the function.
 #[derive(Debug, Default)]
 pub struct FrameStack {
     pub frames: LinkedList<Frame>,
 }
 
 impl FrameStack {
+    // Identifiers for placeholders in the prologue and epilogue.
     const SP_IN: u8 = 0;
     const SP_OUT: u8 = 1;
     const SAVE_RA: u8 = 2;
@@ -41,6 +44,21 @@ impl FrameStack {
         self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
     }
 
+    fn tot_size(&self) -> usize {
+        let mut size = 0;
+        if self.need_save_ra() {
+            size += INT_SIZE;
+        }
+        if self.need_use_s0() {
+            size += INT_SIZE;
+        }
+        let frame = self.frames.back().unwrap();
+        size += frame.var_size + frame.param_bias;
+
+        // align to 16
+        (size + 15) & !15
+    }
+
     /// Allocate a new memory in the stack.
     pub fn malloc(&mut self, size: usize) -> Result<Stack, AsmError> {
         let frame = self.current_frame_mut()?;
@@ -50,7 +68,9 @@ impl FrameStack {
         Ok(address)
     }
 
-    /// Start a new frame.
+    /// Start a new frame and build the prologue.
+    ///
+    /// Note: The prologue is not complete until the end_fill is called.
     pub fn build_prologue(&mut self, func_data: &FunctionData, asm: &mut AsmLocal) {
         let insts = asm.insts_mut();
 
@@ -84,7 +104,10 @@ impl FrameStack {
         }
     }
 
-    /// Mark an exit of the frame.
+    /// Mark an exit of the frame and build the epilogue.
+    /// In this compilation, there maybe not only one epilogue.
+    ///
+    /// Note: The epilogue is not complete until the end_fill is called.
     pub fn build_epilogue(&mut self, asm: &mut AsmLocal) -> Result<(), AsmError> {
         // read all "call" instructions in the function
         let insts = asm.insts_mut();
@@ -99,22 +122,9 @@ impl FrameStack {
         Ok(())
     }
 
-    fn tot_size(&self) -> usize {
-        let mut size = 0;
-        if self.need_save_ra() {
-            size += INT_SIZE;
-        }
-        if self.need_use_s0() {
-            size += INT_SIZE;
-        }
-        let frame = self.frames.back().unwrap();
-        size += frame.var_size + frame.param_bias;
-
-        // align to 16
-        (size + 15) & !15
-    }
-
-    /// End the frame.
+    /// End the frame and fill the prologue and epilogue.
+    ///
+    /// When this function is called, the frame is closed and the stack is ready to use.
     pub fn end_fill(&mut self, asm: &mut AsmGlobal) -> Result<(), AsmError> {
         let size = self.tot_size() as i32;
         self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;

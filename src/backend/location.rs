@@ -30,14 +30,15 @@ pub struct Stack {
     pub offset: i32,
 }
 
+/// Data address, which is in the .data section.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Data {
     pub label: Label,
     pub offset: i32,
 }
 
+/// Location of the data.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-
 pub enum Location {
     /// The data is in the register.
     Register(Register),

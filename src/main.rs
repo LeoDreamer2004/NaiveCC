@@ -1,8 +1,10 @@
-//! # Compiler Principle
+//! # Naive Compiler
 //! This is a naive compiler for the SysY language, which is a subset of C language.
 //! The compiler is implemented in Rust, and it can generate RISC-V assembly code.
+//! Designed for Compiler Principles course (2024 autumn) in Peking University.
 //!
 //! Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024.git
+//! License: MIT
 
 use backend::emit_asm;
 use frontend::{build_ir, emit_ir};

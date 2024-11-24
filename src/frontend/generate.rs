@@ -1,4 +1,4 @@
-//! Generate IR from AST
+//! Main module for generating IR from AST (frontend)
 
 use super::ast::*;
 use super::builtin::set_up_builtins;

@@ -1,4 +1,4 @@
-use super::instruction::{Directive, Inst, Label};
+use super::instruction::{Inst, Label};
 use crate::utils::namer::UniqueNameGenerator;
 use std::io;
 
@@ -10,7 +10,7 @@ pub struct AsmProgram {
 #[derive(Debug, Clone)]
 pub struct AsmGlobal {
     local_namer: UniqueNameGenerator,
-    directive: Directive,
+    section: Section,
     label: Label,
     locals: Vec<AsmLocal>,
 }
@@ -21,22 +21,39 @@ pub struct AsmLocal {
     insts: Vec<Inst>,
 }
 
+
+/// **Section**: .text or .data.
+#[derive(Debug, Clone)]
+pub enum Section {
+    Text,
+    Data,
+}
+
+impl Section {
+    pub fn dump(&self) -> String {
+        match self {
+            Section::Text => String::from("\n.text"),
+            Section::Data => String::from("\n.data"),
+        }
+    }
+}
+
 impl AsmGlobal {
-    pub fn new(directive: Directive, label: Label) -> Self {
+    pub fn new(section: Section, label: Label) -> Self {
         AsmGlobal {
             local_namer: UniqueNameGenerator::default(),
-            directive,
+            section,
             label,
             locals: Vec::new(),
         }
     }
 
     pub fn new_from(other: &AsmGlobal) -> Self {
-        Self::new(other.directive().clone(), other.label().clone())
+        Self::new(other.section().clone(), other.label().clone())
     }
 
-    pub fn directive(&self) -> &Directive {
-        &self.directive
+    pub fn section(&self) -> &Section {
+        &self.section
     }
 
     pub fn label(&self) -> &Label {
@@ -110,7 +127,7 @@ impl AsmProgram {
 
     pub fn emit(&self, mut output: impl io::Write) -> io::Result<()> {
         for g in self.globals() {
-            writeln!(output, "{}", g.directive.dump())?;
+            writeln!(output, "{}", g.section.dump())?;
             writeln!(output, ".globl {}", g.label())?;
             writeln!(output, "{}:", g.label())?;
             for l in g.locals() {
