@@ -101,6 +101,19 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmPr
         }
         _ => unreachable!(),
     }
+
+    // Merge the last two zero if possible
+    let insts = asm.cur_local_mut().insts_mut();
+    if insts.len() >= 2 {
+        let last = insts.pop().unwrap();
+        let prev = insts.pop().unwrap();
+        if let (Inst::Zero(a), Inst::Zero(b)) = (&prev, &last) {
+            insts.push(Inst::Zero(a + b));
+        } else {
+            insts.push(prev);
+            insts.push(last);
+        }
+    }
 }
 
 impl GenerateAsm for FunctionData {

@@ -39,6 +39,20 @@ impl Optimizer for PeepholeOptimizer {
                         }
                     }
                 }
+                (Inst::Lw(r1, r2, imm), Inst::Sw(r3, r4, imm2)) => {
+                    if r1 == r3 && r2 == r4 && imm == imm2 {
+                        csr.next();
+                        csr.remove_cur();
+                        go_next = false;
+                    }
+                }
+                (Inst::Mv(r1, r2), Inst::Mv(r3, r4)) => {
+                    if r1 == r4 && r2 == r3 {
+                        csr.next();
+                        csr.remove_cur();
+                        go_next = false;
+                    }
+                }
                 _ => {}
             }
         }
