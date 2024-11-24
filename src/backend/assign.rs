@@ -67,7 +67,7 @@ impl Default for RegisterInterferenceGraph {
 }
 
 impl RegisterInterferenceGraph {
-    const COLOR_NUM: usize = 6;
+    const COLOR_NUM: usize = 17;
 
     fn real_reg(&self, reg: &FakeRegister) -> Register {
         let color = *self.color_map.get(&Self::to_idx(reg)).unwrap();
