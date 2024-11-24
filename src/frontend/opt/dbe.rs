@@ -16,6 +16,19 @@ impl FunctionPass for DeadBlockElimination {
             self.mark(data);
             changed = self.sweep(data);
         }
+
+        // for bb in &self.liveset {
+        //     if data.dfg().bbs().contains_key(bb) {
+        //         let mut values = Vec::new();
+        //         for value in data.dfg().bb(*bb).used_by() {
+        //             values.push(*value);
+        //         }
+        //         for value in values {
+        //             data.dfg_mut().remove_value(value);
+        //         }
+        //         data.dfg_mut().remove_bb(*bb);
+        //     }
+        // }
     }
 }
 
@@ -31,7 +44,7 @@ impl DeadBlockElimination {
         while let Some(bb) = self.worklist.pop() {
             // get the end inst
             let value = data.layout_mut().bb_mut(bb).insts_mut().back_key().copied();
-            let last = data.dfg_mut().value(value.unwrap());
+            let last = data.dfg().value(value.unwrap());
             match last.kind() {
                 ValueKind::Jump(jump) => {
                     let target = jump.target();
@@ -62,8 +75,8 @@ impl DeadBlockElimination {
         let mut result = false;
         while let Some(bb) = bb_cur.key() {
             if !self.liveset.contains(bb) {
-                bb_cur.remove_current();
                 result = true;
+                bb_cur.remove_current();
             } else {
                 bb_cur.move_next();
             }

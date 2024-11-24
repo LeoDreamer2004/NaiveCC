@@ -1,10 +1,6 @@
+use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
+use koopa::opt::FunctionPass;
 use std::collections::HashMap;
-
-use koopa::{
-    ir::builder_traits::*,
-    ir::{BasicBlock, Function, FunctionData, Value, ValueKind},
-    opt::FunctionPass,
-};
 
 #[derive(Default)]
 pub struct BlockGraphSimplifier {
