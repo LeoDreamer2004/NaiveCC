@@ -1,7 +1,6 @@
 use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
 use super::instruction::*;
-use super::location::ToLocation;
 use super::manager::RegPack;
 use super::opt::AsmOptimizeManager;
 use super::program::{AsmGlobal, AsmLocal, AsmProgram};
@@ -156,11 +155,11 @@ impl GenerateAsm for ValueData {
                     _ => unreachable!("Alloc type should always be a pointer"),
                 };
                 // malloc the data
-                let location = env.fs.malloc(size)?.to_loc();
+                let stack = env.fs.malloc(size)?;
                 // new value "self" as a pointer
                 let reg = env.man.new_reg();
                 let mut pack = RegPack::new(reg);
-                env.man.load_ref_to(location, &mut pack)?;
+                env.man.load_ref_to(stack, &mut pack);
                 env.man.new_val_with_src(self, pack, env.asm)?;
             }
             ValueKind::Store(store) => {

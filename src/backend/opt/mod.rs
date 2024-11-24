@@ -28,8 +28,10 @@ impl AsmOptimizeManager {
     pub fn default() -> Self {
         let mut manager = AsmOptimizeManager::new();
         manager.add(Box::new(PeepholeOptimizer::new()));
-        manager.add(Box::new(ImmFixOptimizer::new()));
         manager.add(Box::new(AlgorithmOptimizer::new()));
+        manager.add(Box::new(PeepholeOptimizer::new()));
+        manager.add(Box::new(PeepholeOptimizer::new()));
+        manager.add(Box::new(ImmFixOptimizer::new()));
         manager
     }
 

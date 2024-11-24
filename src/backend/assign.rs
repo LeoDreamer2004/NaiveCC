@@ -5,7 +5,7 @@ use super::location::Stack;
 use super::program::{AsmGlobal, AsmLocal};
 use super::registers::{FakeRegister, Register, RegisterType};
 use super::INT_SIZE;
-use heuristic_graph_coloring::{color_greedy_dsatur, VecVecGraph};
+use heuristic_graph_coloring::{color_rlf, VecVecGraph};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -23,17 +23,19 @@ impl RegisterAssigner {
             flow.build(asm);
             let mut parser = UseDefParser::default();
             parser.parse(asm);
-            let mut analyser = LiveVariableAnalyser::default();
-            analyser.analyse(&flow, &parser);
+            let mut analyser = LiveVariableAnalyser::new(flow);
+            analyser.analyse(&parser);
             let mut graph = RegisterInterferenceGraph::default();
             graph.build(asm, &analyser);
             let mut allocator = MemoryAllocator::default();
             let ok = allocator.alloc(asm, fs, &graph);
             if ok {
+                let mut flow = FunctionFlowGraph::default();
+                flow.build(asm);
                 let mut parser = UseDefParser::default();
                 parser.parse(asm);
-                let mut analyser = LiveVariableAnalyser::default();
-                analyser.analyse(&flow, &parser);
+                let mut analyser = LiveVariableAnalyser::new(flow);
+                analyser.analyse(&parser);
                 let mut graph = RegisterInterferenceGraph::default();
                 graph.build(asm, &analyser);
                 let mut writer = RegisterRewriter::new_on(graph);
@@ -72,11 +74,6 @@ impl RegisterInterferenceGraph {
         let idx = self.color_idx(color).expect("Bad color");
         // TODO: Maybe not only use Temp registers?
         RegisterType::all(&RegisterType::Temp)[idx]
-    }
-
-    fn need_space(&self, reg: &FakeRegister) -> bool {
-        !self.good_colors[..Self::COLOR_NUM - 2]
-            .contains(self.color_map.get(&Self::to_idx(reg)).unwrap())
     }
 
     fn has_space(&self, reg: &FakeRegister) -> bool {
@@ -144,10 +141,9 @@ impl RegisterInterferenceGraph {
     }
 
     fn color(&mut self) {
-        let color = color_greedy_dsatur(&self.graph);
-
-        for reg_idx in &self.fake_regs {
-            self.color_map.insert(*reg_idx, color[*reg_idx]);
+        let color = color_rlf(&self.graph);
+        for &reg_idx in &self.fake_regs {
+            self.color_map.insert(reg_idx, color[reg_idx]);
         }
         self.choose_best_color(color);
     }
@@ -158,13 +154,12 @@ impl RegisterInterferenceGraph {
             acc
         });
         let mut color_count: Vec<_> = color_count.into_iter().collect();
-        color_count.sort_by_key(|(_, v)| -(*v as i32));
+        color_count.sort_by_key(|(_, v)| -(*v));
         self.good_colors = color_count
             .iter()
             .take(Self::COLOR_NUM)
             .map(|(k, _)| **k)
             .collect();
-
         // extend the good colors to the size of the color
         for _ in 0..(Self::COLOR_NUM as i32 - self.good_colors.len() as i32) {
             self.good_colors.push(0);
@@ -217,10 +212,10 @@ impl MemoryAllocator {
                 for reg in res_inst.regs_mut() {
                     let is_dest = Some(*reg) == dest;
                     if let Register::Fake(fake) = reg {
-                        if graph.need_space(fake) {
-                            if !graph.has_space(fake) {
-                                ok = false;
-                            }
+                        if !graph.has_space(fake) {
+                            // if !graph.has_space(fake) {
+                            ok = false;
+                            // }
                             if is_dest {
                                 save_inst = Some(self.save_to_stack(fake.clone(), fs));
                             } else {

@@ -14,7 +14,7 @@ impl Optimizer for PeepholeOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
         let mut helper = AsmHelper::new(asm);
         let mut csr = helper.new_cursor();
-        let mut go_next = true;
+        let mut go_next = false;
         while !csr.end() {
             if go_next {
                 csr.next();
@@ -53,7 +53,15 @@ impl Optimizer for PeepholeOptimizer {
                         go_next = false;
                     }
                 }
-                _ => {}
+                (i1, i2) => {
+                    if let Some(r1) = i1.dest_reg() {
+                        if let Some(r2) = i2.dest_reg() {
+                            if r1 == r2 && !i2.src_regs().contains(&r1) {
+                                csr.remove_cur();
+                            }
+                        }
+                    }
+                }
             }
         }
         helper.result()

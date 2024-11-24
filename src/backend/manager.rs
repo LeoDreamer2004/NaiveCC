@@ -11,6 +11,7 @@ use std::collections::HashMap;
 pub struct PointerInfo {
     /// where the data is stored
     pub location: Location,
+    pub refer: Option<Stack>,
 }
 
 #[derive(Debug, Default)]
@@ -24,7 +25,7 @@ pub struct AsmManager {
 #[derive(Debug, Clone)]
 pub struct RegPack {
     pub reg: Register,
-    pub loc: Option<Location>,
+    pub refer: Option<Stack>,
     pub insts: Vec<Inst>,
 }
 
@@ -32,7 +33,7 @@ impl RegPack {
     pub fn new(reg: Register) -> Self {
         Self {
             reg,
-            loc: None,
+            refer: None,
             insts: Vec::new(),
         }
     }
@@ -40,30 +41,55 @@ impl RegPack {
 
 impl AsmManager {
     pub fn add_loc(&mut self, ptr: Pointer, loc: Location) {
-        self.map.insert(ptr, PointerInfo { location: loc });
+        self.map.insert(
+            ptr,
+            PointerInfo {
+                location: loc,
+                refer: None,
+            },
+        );
     }
 
     pub fn add_glb_loc(&mut self, ptr: Pointer, loc: Location) {
-        self.glb_map.insert(ptr, PointerInfo { location: loc });
+        self.glb_map.insert(
+            ptr,
+            PointerInfo {
+                location: loc,
+                refer: None,
+            },
+        );
     }
 
-    pub fn loc(&self, ptr: Pointer) -> Result<Location, AsmError> {
-        self.where_is(ptr)
+    pub fn loc(&self, ptr: Pointer) -> Result<&Location, AsmError> {
+        self.info(ptr).map(|info| &info.location)
+    }
+
+    pub fn refer(&self, ptr: Pointer) -> Result<&Option<Stack>, AsmError> {
+        self.info(ptr).map(|info| &info.refer)
+    }
+
+    pub fn refer_mut(&mut self, ptr: Pointer) -> Result<&mut Option<Stack>, AsmError> {
+        self.info_mut(ptr).map(|info| &mut info.refer)
+    }
+
+    fn info(&self, ptr: Pointer) -> Result<&PointerInfo, AsmError> {
+        self.map
+            .get(&ptr)
             .ok_or(AsmError::NullLocation(format!("{ptr:?}")))
     }
 
-    pub fn where_is(&self, ptr: Pointer) -> Option<Location> {
-        self.map.get(&ptr).map(|info| info.location.clone())
+    fn info_mut(&mut self, ptr: Pointer) -> Result<&mut PointerInfo, AsmError> {
+        self.map
+            .get_mut(&ptr)
+            .ok_or(AsmError::NullLocation(format!("{ptr:?}")))
     }
 
     pub fn new_func(&mut self, func_data: &FunctionData, asm: &mut AsmProgram) {
         let label = original_ident(&func_data.name().to_string());
         self.func_index += 1;
         let mut glb = AsmGlobal::new(Directive::Text, label);
-        glb.new_local(AsmLocal::new(Some(format!(
-            ".prologue_{}",
-            self.func_index
-        ))));
+        let label = format!(".prologue_{}", self.func_index);
+        glb.new_local(AsmLocal::new(Some(label)));
         asm.new_global(glb);
     }
 
@@ -111,8 +137,10 @@ impl AsmManager {
         asm: &mut AsmProgram,
     ) -> Result<(), AsmError> {
         let rs = src.reg;
+        *self.refer_mut(dest)? = src.refer.clone();
         self.write_pack(src, asm);
-        match &self.loc(dest)? {
+
+        match self.loc(dest)? {
             Location::Register(reg) => {
                 if *reg == rs {
                     return Ok(());
@@ -132,36 +160,17 @@ impl AsmManager {
         Ok(())
     }
 
-    pub fn load_imm_to(
-        &mut self,
-        imm: i32,
-        dest: &mut RegPack,
-    ) -> Result<(), AsmError> {
+    pub fn load_imm_to(&mut self, imm: i32, dest: &mut RegPack) -> Result<(), AsmError> {
         // We never reuse immediate, only load it to the register.
         dest.insts.push(Inst::Li(dest.reg, imm));
         Ok(())
     }
 
     /// Build a reference to the location, and save the address to the register.
-    pub fn load_ref_to(
-        &mut self,
-        location: Location,
-        dest: &mut RegPack,
-    ) -> Result<(), AsmError> {
+    pub fn load_ref_to(&mut self, stack: Stack, dest: &mut RegPack) {
         let reg = dest.reg;
-        match location {
-            Location::Register(_) => {
-                return Err(AsmError::IllegalGetAddress);
-            }
-            Location::Stack(stack) => {
-                dest.insts.push(Inst::Addi(reg, stack.base, stack.offset));
-            }
-            Location::Data(data) => {
-                dest.insts.push(Inst::La(reg, data.label.clone()));
-                dest.insts.push(Inst::Addi(reg, reg, data.offset));
-            }
-        }
-        Ok(())
+        dest.refer = Some(stack.clone());
+        dest.insts.push(Inst::Addi(reg, stack.base, stack.offset));
     }
 
     /// Load the data from the address of the src to the register.
@@ -174,8 +183,15 @@ impl AsmManager {
         let rs1 = src.reg;
         let rs2 = dest.reg;
         self.write_pack(src, asm);
-        self.write_pack(dest, asm);
-        asm.push(Inst::Sw(rs1, rs2, 0));
+        match &dest.refer {
+            Some(stack) => {
+                asm.push(Inst::Sw(rs1, stack.base, stack.offset));
+            }
+            None => {
+                self.write_pack(dest, asm);
+                asm.push(Inst::Sw(rs1, rs2, 0));
+            }
+        }
     }
 
     pub fn add_bias(
@@ -189,6 +205,7 @@ impl AsmManager {
         // TODO: Pack data has been changed
         match bias {
             AsmElement::Local(ptr) => {
+                pack.refer = None;
                 let mut p = RegPack::new(FREE_REG);
                 self.load_val_to(ptr.clone(), &mut p)?;
                 self.write_pack(p, asm);
@@ -202,21 +219,21 @@ impl AsmManager {
                 pack.insts.push(Inst::Add(reg, reg, FREE_REG));
             }
             AsmElement::Imm(imm) => {
-                pack.insts
-                    .push(Inst::Addi(reg, reg, imm * (unit_size as i32)));
+                let inc = imm * (unit_size as i32);
+                if let Some(stack) = &mut pack.refer {
+                    stack.offset += inc;
+                }
+                pack.insts.push(Inst::Addi(reg, reg, inc));
             }
         }
         Ok(())
     }
 
     /// Load the data from the address of the src to the register.
-    pub fn load_val_to(
-        &mut self,
-        src: Pointer,
-        dest: &mut RegPack,
-    ) -> Result<(), AsmError> {
+    pub fn load_val_to(&mut self, src: Pointer, dest: &mut RegPack) -> Result<(), AsmError> {
         let dest_reg = dest.reg;
-        match &self.loc(src)? {
+        dest.refer = self.refer(src)?.clone();
+        match self.loc(src)? {
             Location::Register(reg) => {
                 if *reg != dest_reg {
                     dest.insts.push(Inst::Mv(dest_reg, *reg));
@@ -237,11 +254,7 @@ impl AsmManager {
         Ok(())
     }
 
-    pub fn load_to(
-        &mut self,
-        element: &AsmElement,
-        dest: &mut RegPack,
-    ) -> Result<(), AsmError> {
+    pub fn load_to(&mut self, element: &AsmElement, dest: &mut RegPack) -> Result<(), AsmError> {
         match element {
             AsmElement::Local(ptr) => self.load_val_to(*ptr, dest),
             AsmElement::Imm(imm) => self.load_imm_to(*imm, dest),

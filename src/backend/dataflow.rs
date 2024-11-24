@@ -308,18 +308,27 @@ impl UseDefParser {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct LiveVariableAnalyser {
+    flow: FunctionFlowGraph,
     ins: HashMap<Label, HashSet<Register>>,
     outs: HashMap<Label, HashSet<Register>>,
 }
 
 impl LiveVariableAnalyser {
-    pub fn analyse(&mut self, flow: &FunctionFlowGraph, parser: &UseDefParser) {
+    pub fn new(flow: FunctionFlowGraph) -> Self {
+        Self {
+            flow,
+            ins: HashMap::new(),
+            outs: HashMap::new(),
+        }
+    }
+
+    pub fn analyse(&mut self, parser: &UseDefParser) {
         self.ins.clear();
         self.outs.clear();
 
-        for label in flow.labels() {
+        for label in self.flow.labels() {
             self.ins.insert(label.clone(), HashSet::new());
             self.outs.insert(label.clone(), HashSet::new());
         }
@@ -327,11 +336,11 @@ impl LiveVariableAnalyser {
         let mut changed = true;
         while changed {
             changed = false;
-            for label in flow.labels() {
+            for label in self.flow.labels() {
 
                 // OUT[B] = U IN[S]
                 let mut out_set = HashSet::new();
-                for succ in flow.to(label) {
+                for succ in self.flow.to(label) {
                     out_set.extend(self.ins[succ].clone());
                 }
                 self.outs.insert(label.clone(), out_set);
