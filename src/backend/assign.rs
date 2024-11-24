@@ -291,8 +291,14 @@ impl RegisterRewriter {
                 let mut res = AsmLocal::new_from(local);
                 let insts = res.insts_mut();
 
+                let mut used_set = HashSet::new();
+                let mut def_set = HashSet::new();
                 let mut active_set = analyser.outs(&label).clone();
-
+                for inst in local.insts() {
+                    if let Some(dest) = inst.dest_reg() {
+                        def_set.insert(dest.clone());
+                    }
+                }
                 // Do everying in reverse order!
                 for inst in local.insts_mut().iter_mut().rev() {
                     // Update the active set
@@ -300,7 +306,12 @@ impl RegisterRewriter {
                         active_set.insert(reg.clone());
                     }
                     if let Some(reg) = inst.dest_reg() {
+                        def_set.remove(&reg);
+                        used_set.remove(reg);
                         active_set.remove(&reg);
+                    }
+                    for reg in inst.src_regs() {
+                        used_set.insert(reg.clone());
                     }
 
                     // Recover the registers when meet a call
@@ -326,14 +337,16 @@ impl RegisterRewriter {
                     };
 
                     for reg in to_store {
-                        if let Some(inst) = self.save_to_stack(*reg, fs) {
-                            insts.push(inst);
+                        if def_set.contains(reg) {
+                            if let Some(inst) = self.save_to_stack(*reg, fs) {
+                                insts.push(inst);
+                            }
                         }
                     }
                 }
 
-                for reg in analyser.ins(&label) {
-                    if let Some(inst) = self.load_from_stack(*reg, fs) {
+                for reg in used_set {
+                    if let Some(inst) = self.load_from_stack(reg, fs) {
                         insts.push(inst);
                     }
                 }
