@@ -123,6 +123,10 @@ impl AsmProgram {
         self.cur_local_mut().insts_mut().push(inst);
     }
 
+    pub fn extend(&mut self, insts: Vec<Inst>) {
+        self.cur_local_mut().insts_mut().extend(insts);
+    }
+
     pub fn cur_local(&self) -> &AsmLocal {
         self.cur_global().locals().last().unwrap()
     }

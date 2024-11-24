@@ -76,7 +76,7 @@ impl<'a> Environment<'a> {
     pub fn new_pack(&mut self, value: Value) -> Result<RegPack, AsmError> {
         let e = value.into_element(&self.ctx);
         let mut pack = RegPack::new(self.man.new_reg());
-        self.man.load_to(&e, &mut pack, &mut self.asm)?;
+        self.man.load_to(&e, &mut pack)?;
         Ok(pack)
     }
 }

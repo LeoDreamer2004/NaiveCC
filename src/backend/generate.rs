@@ -31,7 +31,7 @@ pub fn emit_asm(program: AsmProgram, output: impl io::Write) -> Result<(), io::E
 
 #[derive(Debug)]
 pub enum AsmError {
-    NullLocation(Option<String>),
+    NullLocation(String),
     IllegalGetAddress,
     FunctionNotFound(Function),
     InvalidStackFrame,
@@ -160,22 +160,26 @@ impl GenerateAsm for ValueData {
                 // new value "self" as a pointer
                 let reg = env.man.new_reg();
                 let mut pack = RegPack::new(reg);
-                env.man.load_ref_to(location, &mut pack, env.asm)?;
-                env.man.new_val_with_src(self, &mut pack, env.asm)?;
+                env.man.load_ref_to(location, &mut pack)?;
+                env.man.new_val_with_src(self, pack, env.asm)?;
             }
             ValueKind::Store(store) => {
-                let mut src = env.new_pack(store.value())?;
-                let mut dest = env.new_pack(store.dest())?;
-                env.man.save_deref_to(&mut src, &mut dest, env.asm);
+                let src = env.new_pack(store.value())?;
+                let dest = env.new_pack(store.dest())?;
+                env.man.save_deref_to(src, dest, env.asm);
             }
             ValueKind::Load(load) => {
                 let mut pack = env.new_pack(load.src())?;
-                env.man.load_deref_to(&pack.clone(), &mut pack, env.asm);
-                env.man.new_val_with_src(self, &mut pack, env.asm)?;
+                env.man.load_deref_to(pack.clone(), &mut pack);
+                env.man.new_val_with_src(self, pack, env.asm)?;
             }
             ValueKind::Binary(binary) => {
-                let rs1 = env.new_pack(binary.lhs())?.reg;
-                let rs2 = env.new_pack(binary.rhs())?.reg;
+                let p1 = env.new_pack(binary.lhs())?;
+                let p2 = env.new_pack(binary.rhs())?;
+                let rs1 = p1.reg;
+                let rs2 = p2.reg;
+                env.man.write_pack(p1, env.asm);
+                env.man.write_pack(p2, env.asm);
                 let rd = env.man.new_reg();
                 let insts = match binary.op() {
                     BinaryOp::Add => vec![Inst::Add(rd, rs1, rs2)],
@@ -213,19 +217,16 @@ impl GenerateAsm for ValueData {
                         Inst::SeqZ(rd, rd),
                     ],
                 };
-
-                for inst in insts {
-                    env.asm.push(inst);
-                }
-
-                let pack = &mut RegPack::new(rd);
+                env.asm.extend(insts);
+                let pack = RegPack::new(rd);
                 env.man.new_val_with_src(self, pack, env.asm)?;
             }
             ValueKind::Return(ret) => {
                 if let Some(value) = ret.value() {
                     let e = value.into_element(&env.ctx);
-                    let pack = &mut RegPack::new(registers::A0);
-                    env.man.load_to(&e, pack, env.asm)?;
+                    let mut pack = RegPack::new(registers::A0);
+                    env.man.load_to(&e, &mut pack)?;
+                    env.man.write_pack(pack, env.asm);
                 }
                 env.fs.epilogue(env.asm)?;
                 env.asm.push(Inst::Ret);
@@ -235,7 +236,9 @@ impl GenerateAsm for ValueData {
                 env.asm.push(Inst::J(env.label_gen.get_name(label)));
             }
             ValueKind::Branch(branch) => {
-                let rs = env.new_pack(branch.cond())?.reg;
+                let pack = env.new_pack(branch.cond())?;
+                let rs = pack.reg;
+                env.man.write_pack(pack, env.asm);
                 let true_bb = branch.true_bb();
                 env.asm
                     .push(Inst::Bnez(rs, env.label_gen.get_name(true_bb)));
@@ -255,7 +258,7 @@ impl GenerateAsm for ValueData {
                     _ => unreachable!("Call callee should always be a function"),
                 };
                 if !is_unit {
-                    let reg = env.man.new_val(self, env.asm);
+                    let reg = env.man.new_val(self);
                     env.asm.push(Inst::Mv(reg, registers::A0));
                 }
             }
@@ -275,7 +278,7 @@ impl GenerateAsm for ValueData {
                 let mut pack = env.new_pack(ptr.src())?;
                 let bias = &ptr.index().into_element(&env.ctx);
                 env.man.add_bias(&mut pack, bias, size, env.asm)?;
-                env.man.new_val_with_src(self, &mut pack, env.asm)?;
+                env.man.new_val_with_src(self, pack, env.asm)?;
             }
             ValueKind::GetPtr(ptr) => {
                 let ty = env.ctx.value_type(ptr.src());
@@ -286,7 +289,7 @@ impl GenerateAsm for ValueData {
                 let mut pack = env.new_pack(ptr.src())?;
                 let bias = &ptr.index().into_element(&env.ctx);
                 env.man.add_bias(&mut pack, bias, size, env.asm)?;
-                env.man.new_val_with_src(self, &mut pack, env.asm)?;
+                env.man.new_val_with_src(self, pack, env.asm)?;
             }
             _ => unimplemented!(),
         }
