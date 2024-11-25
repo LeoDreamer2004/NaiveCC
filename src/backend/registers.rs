@@ -76,11 +76,11 @@ pub const SP: Register = Register::RiscV(RiscVRegister("sp"));
 pub const RA: Register = Register::RiscV(RiscVRegister("ra"));
 
 /// Frame pointer
-pub const S0: Register = Register::RiscV(RiscVRegister("s0"));
+pub const FP: Register = Register::RiscV(RiscVRegister("fp"));
 
 pub enum RegisterType {
     Arg,
-    Temp, // caller-saved
+    Temp,
 }
 
 pub const FREE_REG: Register = T0;

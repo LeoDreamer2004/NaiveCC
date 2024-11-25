@@ -6,10 +6,11 @@ use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct PointerInfo {
+struct PointerInfo {
     /// where the data is stored
-    pub location: Location,
-    pub refer: Option<Stack>,
+    location: Location,
+    /// The reference what the data stored
+    refer: Option<Stack>,
 }
 
 #[derive(Debug, Default)]
@@ -23,8 +24,8 @@ pub struct AsmManager {
 #[derive(Debug, Clone)]
 pub struct InfoPack {
     pub reg: Register,
-    pub refer: Option<Stack>,
-    pub insts: Vec<Inst>,
+    refer: Option<Stack>,
+    insts: Vec<Inst>,
 }
 
 impl InfoPack {
@@ -155,13 +156,46 @@ impl AsmManager {
         Ok(())
     }
 
+    /// Load the data from the address of the src to the register.
+    pub fn load_val_to(&mut self, src: Pointer, dest: &mut InfoPack) -> Result<(), AsmError> {
+        let dest_reg = dest.reg;
+        dest.refer = self.refer(src)?.clone();
+        match self.loc(src)? {
+            Location::Register(reg) => {
+                if *reg != dest_reg {
+                    dest.insts.push(Inst::Mv(dest_reg, *reg));
+                    dest.reg = dest_reg;
+                }
+            }
+            Location::Stack(stack) => {
+                dest.insts
+                    .push(Inst::Lw(dest_reg, stack.base, stack.offset));
+                dest.reg = dest_reg;
+            }
+            Location::Data(data) => {
+                dest.insts.push(Inst::La(dest_reg, data.label.clone()));
+                dest.insts.push(Inst::Addi(dest_reg, dest_reg, data.offset));
+                dest.reg = dest_reg;
+            }
+        }
+        Ok(())
+    }
+
     pub fn load_imm_to(&mut self, imm: i32, dest: &mut InfoPack) -> Result<(), AsmError> {
         // We never reuse immediate, only load it to the register.
+        // Do those later in optimization.
         dest.insts.push(Inst::Li(dest.reg, imm));
         Ok(())
     }
 
-    /// Build a reference to the location, and save the address to the register.
+    pub fn load_to(&mut self, element: &AsmElement, dest: &mut InfoPack) -> Result<(), AsmError> {
+        match element {
+            AsmElement::Local(ptr) => self.load_val_to(*ptr, dest),
+            AsmElement::Imm(imm) => self.load_imm_to(*imm, dest),
+        }
+    }
+
+    /// Build a reference to the stack, and save the address to the register.
     pub fn load_ref_to(&mut self, stack: Stack, dest: &mut InfoPack) {
         let reg = dest.reg;
         dest.refer = Some(stack.clone());
@@ -174,7 +208,7 @@ impl AsmManager {
     }
 
     /// Save the data in the register to the address of the dest.
-    pub fn save_deref_to(&mut self, src: InfoPack, dest: InfoPack, asm: &mut AsmLocal) {
+    pub fn save_to_deref(&mut self, src: InfoPack, dest: InfoPack, asm: &mut AsmLocal) {
         let rs1 = src.reg;
         let rs2 = dest.reg;
         src.write_on(asm);
@@ -198,7 +232,6 @@ impl AsmManager {
         asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let reg = pack.reg;
-        // TODO: Pack data has been changed
         match bias {
             AsmElement::Local(ptr) => {
                 pack.refer = None;
@@ -225,38 +258,6 @@ impl AsmManager {
         Ok(())
     }
 
-    /// Load the data from the address of the src to the register.
-    pub fn load_val_to(&mut self, src: Pointer, dest: &mut InfoPack) -> Result<(), AsmError> {
-        let dest_reg = dest.reg;
-        dest.refer = self.refer(src)?.clone();
-        match self.loc(src)? {
-            Location::Register(reg) => {
-                if *reg != dest_reg {
-                    dest.insts.push(Inst::Mv(dest_reg, *reg));
-                    dest.reg = dest_reg;
-                }
-            }
-            Location::Stack(stack) => {
-                dest.insts
-                    .push(Inst::Lw(dest_reg, stack.base, stack.offset));
-                dest.reg = dest_reg;
-            }
-            Location::Data(data) => {
-                dest.insts.push(Inst::La(dest_reg, data.label.clone()));
-                dest.insts.push(Inst::Addi(dest_reg, dest_reg, data.offset));
-                dest.reg = dest_reg;
-            }
-        }
-        Ok(())
-    }
-
-    pub fn load_to(&mut self, element: &AsmElement, dest: &mut InfoPack) -> Result<(), AsmError> {
-        match element {
-            AsmElement::Local(ptr) => self.load_val_to(*ptr, dest),
-            AsmElement::Imm(imm) => self.load_imm_to(*imm, dest),
-        }
-    }
-
     fn param_location(index: usize) -> Location {
         if index < MAX_PARAM_REG {
             RegisterType::all(&RegisterType::Arg)[index].to_loc()
@@ -272,7 +273,7 @@ impl AsmManager {
             Location::Stack(stack) => {
                 // the params are in the stack of the caller
                 let offset = stack.offset;
-                Stack { base: S0, offset }.to_loc()
+                Stack { base: FP, offset }.to_loc()
             }
             Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
         };
@@ -286,7 +287,6 @@ impl AsmManager {
         param: Pointer,
         asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
-        // TODO: Save local variables to the stack/callee-saved registers
         let e = AsmElement::from(param);
         match Self::param_location(index) {
             Location::Register(reg) => {

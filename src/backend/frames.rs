@@ -5,66 +5,59 @@ use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
 use koopa::ir::{FunctionData, ValueKind};
 use std::cmp::max;
-use std::collections::LinkedList;
-
-#[derive(Debug, Default)]
-pub struct Frame {
-    pub var_size: usize,
-    pub has_call: bool,
-    pub param_bias: usize,
-}
 
 /// Easy frame manager for function stack.
 /// Automatically generate the prologue and epilogue of the function.
 #[derive(Debug, Default)]
-pub struct FrameStack {
-    pub frames: LinkedList<Frame>,
+pub struct StackFrame {
+    var_size: usize,
+    has_call: bool,
+    param_bias: usize,
 }
 
-impl FrameStack {
+impl StackFrame {
     // Identifiers for placeholders in the prologue and epilogue.
     const SP_IN: u8 = 0;
     const SP_OUT: u8 = 1;
     const SAVE_RA: u8 = 2;
     const RECOVER_RA: u8 = 3;
-    const SAVE_S0: u8 = 4;
-    const RECOVER_S0: u8 = 5;
+    const SAVE_FP: u8 = 4;
+    const RECOVER_FP: u8 = 5;
 
     fn need_save_ra(&self) -> bool {
-        self.frames.back().map_or(false, |frame| frame.has_call)
+        self.has_call
     }
 
-    fn need_use_s0(&self) -> bool {
-        self.frames
-            .back()
-            .map_or(false, |frame| frame.param_bias > 0)
+    fn need_use_fp(&self) -> bool {
+        self.param_bias > 0
     }
 
-    fn current_frame_mut(&mut self) -> Result<&mut Frame, AsmError> {
-        self.frames.back_mut().ok_or(AsmError::InvalidStackFrame)
-    }
-
-    fn tot_size(&self) -> usize {
+    fn top_size(&self) -> usize {
         let mut size = 0;
         if self.need_save_ra() {
             size += INT_SIZE;
         }
-        if self.need_use_s0() {
+        if self.need_use_fp() {
             size += INT_SIZE;
         }
-        let frame = self.frames.back().unwrap();
-        size += frame.var_size + frame.param_bias;
+        size
+    }
 
+    fn bottom_size(&self) -> usize {
+        self.var_size + self.param_bias
+    }
+
+    fn tot_size(&self) -> usize {
+        let size = self.top_size() + self.bottom_size();
         // align to 16
         (size + 15) & !15
     }
 
     /// Allocate a new memory in the stack.
     pub fn malloc(&mut self, size: usize) -> Result<Stack, AsmError> {
-        let frame = self.current_frame_mut()?;
-        let offset = (frame.var_size + frame.param_bias) as i32;
+        let offset = self.bottom_size() as i32;
         let address = Stack { base: SP, offset };
-        frame.var_size += size;
+        self.var_size += size;
         Ok(address)
     }
 
@@ -77,30 +70,26 @@ impl FrameStack {
         // add a placeholder here, waiting for update when the frame size is known.
         insts.push(Inst::Placeholder(Self::SP_IN));
 
-        let mut frame = Frame::default();
-
         // calculate the parameter bias
         for (_, node) in func_data.layout().bbs() {
             for inst in node.insts().keys() {
                 let data = func_data.dfg().value(*inst);
                 if let ValueKind::Call(call) = data.kind() {
-                    frame.has_call = true;
+                    self.has_call = true;
                     let p_num = call.args().len();
                     if p_num > MAX_PARAM_REG {
-                        frame.param_bias =
-                            max(frame.param_bias, INT_SIZE * (p_num - MAX_PARAM_REG));
+                        self.param_bias = max(self.param_bias, INT_SIZE * (p_num - MAX_PARAM_REG));
                     }
                 }
             }
         }
-        self.frames.push_back(frame);
 
         if self.need_save_ra() {
             insts.push(Inst::Placeholder(Self::SAVE_RA));
         }
-        if self.need_use_s0() {
-            insts.push(Inst::Placeholder(Self::SAVE_S0));
-            insts.push(Inst::Mv(S0, SP));
+        if self.need_use_fp() {
+            insts.push(Inst::Placeholder(Self::SAVE_FP));
+            insts.push(Inst::Mv(FP, SP));
         }
     }
 
@@ -115,8 +104,8 @@ impl FrameStack {
         if self.need_save_ra() {
             insts.push(Inst::Placeholder(Self::RECOVER_RA));
         }
-        if self.need_use_s0() {
-            insts.push(Inst::Placeholder(Self::RECOVER_S0));
+        if self.need_use_fp() {
+            insts.push(Inst::Placeholder(Self::RECOVER_FP));
         }
         insts.push(Inst::Placeholder(Self::SP_OUT));
         Ok(())
@@ -127,10 +116,12 @@ impl FrameStack {
     /// When this function is called, the frame is closed and the stack is ready to use.
     pub fn end_fill(&mut self, asm: &mut AsmGlobal) -> Result<(), AsmError> {
         let size = self.tot_size() as i32;
-        self.frames.pop_back().ok_or(AsmError::InvalidStackFrame)?;
         if size > MAX_STACK_SIZE as i32 {
             return Err(AsmError::StackOverflow);
         }
+
+        // reset the stack frame
+        *self = Self::default();
 
         // recover the place holder
         for local in asm.locals_mut().iter_mut().rev() {
@@ -158,11 +149,11 @@ impl FrameStack {
                         Self::RECOVER_RA => {
                             *inst = Inst::Lw(RA, SP, size - INT_SIZE as i32);
                         }
-                        Self::SAVE_S0 => {
-                            *inst = Inst::Sw(S0, SP, size - 2 * INT_SIZE as i32);
+                        Self::SAVE_FP => {
+                            *inst = Inst::Sw(FP, SP, size - 2 * INT_SIZE as i32);
                         }
-                        Self::RECOVER_S0 => {
-                            *inst = Inst::Lw(S0, SP, size - 2 * INT_SIZE as i32);
+                        Self::RECOVER_FP => {
+                            *inst = Inst::Lw(FP, SP, size - 2 * INT_SIZE as i32);
                         }
                         _ => unreachable!("Unknown placeholder"),
                     }

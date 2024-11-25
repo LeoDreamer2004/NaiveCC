@@ -41,7 +41,7 @@ pub fn opt_ir(program: Program) -> Program {
     let mut program = program;
     let mut passman = PassManager::new();
     passman.register(Pass::Function(Box::new(DeadBlockElimination::default())));
-    passman.register(Pass::Function(Box::new(BlockGraphSimplifier::default())));
+    passman.register(Pass::Function(Box::new(BlockFlowSimplifier::default())));
     passman.register(Pass::Function(Box::new(ConstantsInline::default())));
     passman.register(Pass::Function(Box::new(DeadCodeElimination::default())));
     passman.register(Pass::Function(Box::new(CommonSubexpression::default())));

@@ -50,6 +50,9 @@ where
     }
 }
 
+/// A generator for unique names.
+///
+/// Usage: a generator with a suffix
 #[derive(Debug, Clone)]
 pub struct UniqueNameGenerator {
     suffix: String,
@@ -64,6 +67,7 @@ impl UniqueNameGenerator {
         }
     }
 
+    /// Get a unique name.
     pub fn get_name(&mut self, name: String) -> String {
         match self.map.get_mut(&name) {
             Some(i) => {
@@ -84,14 +88,17 @@ impl Default for UniqueNameGenerator {
     }
 }
 
+/// Normal Identifier in the IR.
 pub fn normal_ident(ident: &String) -> String {
     format!("%{}", ident)
 }
 
+/// Global Identifier in the IR.
 pub fn global_ident(ident: &String) -> String {
     format!("@{}", ident)
 }
 
+/// Original Identifier from the IR.
 pub fn original_ident(ident: &String) -> String {
     ident[1..].to_string()
 }

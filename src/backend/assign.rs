@@ -1,5 +1,5 @@
 use super::dataflow::{FunctionFlowGraph, LiveVariableAnalyser, UseDefParser};
-use super::frames::FrameStack;
+use super::frames::StackFrame;
 use super::instruction::Inst;
 use super::location::Stack;
 use super::program::{AsmGlobal, AsmLocal};
@@ -17,7 +17,7 @@ pub struct RegisterAssigner;
 /// that there are infinite registers). They are called like "reg_1" etc.
 /// This dispatcher is used to dispatch the registers for the values.
 impl RegisterAssigner {
-    pub fn assign(&mut self, asm: &mut AsmGlobal, fs: &mut FrameStack) {
+    pub fn assign(&mut self, asm: &mut AsmGlobal, sf: &mut StackFrame) {
         loop {
             let mut flow = FunctionFlowGraph::default();
             flow.build(asm);
@@ -28,7 +28,7 @@ impl RegisterAssigner {
             let mut graph = RegisterInterferenceGraph::default();
             graph.build(asm, &analyser);
             let mut allocator = MemoryAllocator::default();
-            let ok = allocator.alloc(asm, fs, &graph);
+            let ok = allocator.alloc(asm, sf, &graph);
             if ok {
                 let mut flow = FunctionFlowGraph::default();
                 flow.build(asm);
@@ -39,7 +39,7 @@ impl RegisterAssigner {
                 let mut graph = RegisterInterferenceGraph::default();
                 graph.build(asm, &analyser);
                 let mut writer = RegisterRewriter::new_on(graph);
-                writer.write(asm, fs, analyser);
+                writer.write(asm, sf, analyser);
                 break;
             }
         }
@@ -78,7 +78,6 @@ impl RegisterInterferenceGraph {
     fn real_reg(&self, reg: &FakeRegister) -> Register {
         let color = *self.color_map.get(&Self::to_idx(reg)).unwrap();
         let idx = self.color_idx(color).expect("Bad color");
-        // TODO: Maybe not only use Temp registers?
         RegisterType::all(&RegisterType::Temp)[idx]
     }
 
@@ -210,7 +209,7 @@ impl MemoryAllocator {
     pub fn alloc(
         &mut self,
         asm: &mut AsmGlobal,
-        fs: &mut FrameStack,
+        sf: &mut StackFrame,
         graph: &RegisterInterferenceGraph,
     ) -> bool {
         self.reg_idx = graph.fake_regs().iter().max().unwrap_or(&0) + 1;
@@ -231,10 +230,10 @@ impl MemoryAllocator {
 
                             if is_dest {
                                 // save the register to the stack
-                                save_inst = Some(self.save_to_stack(fake.clone(), fs));
+                                save_inst = Some(self.save_to_stack(fake.clone(), sf));
                             } else {
                                 // load the register from the stack
-                                let (r, i) = self.load_from_stack(fake, fs);
+                                let (r, i) = self.load_from_stack(fake, sf);
                                 *reg = r;
                                 res_l.insts_mut().push(i);
                             }
@@ -259,22 +258,22 @@ impl MemoryAllocator {
         reg
     }
 
-    fn save_to_stack(&mut self, fake: FakeRegister, fs: &mut FrameStack) -> Inst {
-        let loc = self.get_alloc(&fake, fs);
+    fn save_to_stack(&mut self, fake: FakeRegister, sf: &mut StackFrame) -> Inst {
+        let loc = self.get_alloc(&fake, sf);
         Inst::Sw(Register::Fake(fake), loc.base, loc.offset)
     }
 
-    fn load_from_stack(&mut self, fake: &FakeRegister, fs: &mut FrameStack) -> (Register, Inst) {
+    fn load_from_stack(&mut self, fake: &FakeRegister, sf: &mut StackFrame) -> (Register, Inst) {
         let reg = self.new_reg();
-        let loc = self.get_alloc(fake, fs);
+        let loc = self.get_alloc(fake, sf);
         (reg, Inst::Lw(reg, loc.base, loc.offset))
     }
 
-    fn get_alloc(&mut self, fake: &FakeRegister, fs: &mut FrameStack) -> Stack {
+    fn get_alloc(&mut self, fake: &FakeRegister, sf: &mut StackFrame) -> Stack {
         match self.loc_map.get(fake) {
             Some(loc) => loc.clone(),
             None => {
-                let loc = fs.malloc(INT_SIZE).unwrap();
+                let loc = sf.malloc(INT_SIZE).unwrap();
                 self.loc_map.insert(*fake, loc.clone());
                 loc
             }
@@ -301,7 +300,7 @@ impl RegisterRewriter {
     ///
     /// Note: May add some instructions to save and load the registers to the stack
     /// when going through blocks / meeting function calls.
-    fn write(&mut self, asm: &mut AsmGlobal, fs: &mut FrameStack, analyser: LiveVariableAnalyser) {
+    fn write(&mut self, asm: &mut AsmGlobal, sf: &mut StackFrame, analyser: LiveVariableAnalyser) {
         for local in asm.locals_mut().iter_mut().rev() {
             if let Some(label) = local.label().clone() {
                 let mut res = AsmLocal::new_from(local);
@@ -334,7 +333,7 @@ impl RegisterRewriter {
                     // Recover the registers when meet a call
                     if let Inst::Call(_) = inst {
                         for reg in &active_set {
-                            if let Some(inst) = self.load_from_stack(reg.clone(), fs) {
+                            if let Some(inst) = self.load_from_stack(reg.clone(), sf) {
                                 insts.push(inst);
                             }
                         }
@@ -355,7 +354,7 @@ impl RegisterRewriter {
 
                     for reg in to_store {
                         if *def_ref_cnt.get(reg).unwrap_or(&0) > 0 {
-                            if let Some(inst) = self.save_to_stack(*reg, fs) {
+                            if let Some(inst) = self.save_to_stack(*reg, sf) {
                                 insts.push(inst);
                             }
                         }
@@ -363,7 +362,7 @@ impl RegisterRewriter {
                 }
 
                 for reg in used_set {
-                    if let Some(inst) = self.load_from_stack(reg, fs) {
+                    if let Some(inst) = self.load_from_stack(reg, sf) {
                         insts.push(inst);
                     }
                 }
@@ -385,30 +384,30 @@ impl RegisterRewriter {
         inst
     }
 
-    fn load_from_stack(&mut self, reg: Register, fs: &mut FrameStack) -> Option<Inst> {
+    fn load_from_stack(&mut self, reg: Register, sf: &mut StackFrame) -> Option<Inst> {
         let real = match &reg {
             Register::Fake(fake) => self.graph.real_reg(fake),
             _ => return None,
         };
 
-        let loc = self.get_alloc(&reg, fs);
+        let loc = self.get_alloc(&reg, sf);
         Some(Inst::Lw(real, loc.base, loc.offset))
     }
 
-    fn save_to_stack(&mut self, reg: Register, fs: &mut FrameStack) -> Option<Inst> {
+    fn save_to_stack(&mut self, reg: Register, sf: &mut StackFrame) -> Option<Inst> {
         let real = match &reg {
             Register::Fake(fake) => self.graph.real_reg(fake),
             _ => return None,
         };
-        let loc = self.get_alloc(&reg, fs);
+        let loc = self.get_alloc(&reg, sf);
         Some(Inst::Sw(real, loc.base, loc.offset))
     }
 
-    fn get_alloc(&mut self, reg: &Register, fs: &mut FrameStack) -> Stack {
+    fn get_alloc(&mut self, reg: &Register, sf: &mut StackFrame) -> Stack {
         match self.loc_map.get(reg) {
             Some(loc) => loc.clone(),
             None => {
-                let loc = fs.malloc(INT_SIZE).unwrap();
+                let loc = sf.malloc(INT_SIZE).unwrap();
                 self.loc_map.insert(reg.clone(), loc.clone());
                 loc
             }

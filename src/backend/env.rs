@@ -1,4 +1,4 @@
-use super::frames::FrameStack;
+use super::frames::StackFrame;
 use super::location::{AsmElement, Pointer};
 use super::manager::{AsmManager, InfoPack};
 use super::AsmError;
@@ -57,8 +57,8 @@ impl<'a> Context<'a> {
 pub struct Environment<'a> {
     pub ctx: Context<'a>,
     pub man: AsmManager,
-    pub fs: FrameStack,
-    pub label_gen: IdGenerator<BasicBlock>,
+    pub sf: StackFrame,
+    pub l_gen: IdGenerator<BasicBlock>,
 }
 
 impl<'a> Environment<'a> {
@@ -66,8 +66,8 @@ impl<'a> Environment<'a> {
         Environment {
             ctx: Context::new(program),
             man: AsmManager::default(),
-            fs: FrameStack::default(),
-            label_gen: IdGenerator::new(|e| format!("L{}", e)),
+            sf: StackFrame::default(),
+            l_gen: IdGenerator::new(|e| format!("L{}", e)),
         }
     }
 

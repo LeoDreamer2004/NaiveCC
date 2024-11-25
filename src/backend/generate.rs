@@ -20,8 +20,10 @@ use std::cell::Ref;
 /// Trait for generating assembly code.
 ///
 /// This trait is implemented by all the IR entities that can be translated into assembly code.
-pub trait GenerateAsm {
+pub trait EntityAsmGenerator {
+    /// The target type for the generated assembly code.
     type AsmTarget;
+
     /// Generate assembly code for the entity.
     ///
     /// # Errors
@@ -30,7 +32,7 @@ pub trait GenerateAsm {
         -> Result<(), AsmError>;
 }
 
-impl GenerateAsm for Program {
+impl EntityAsmGenerator for Program {
     type AsmTarget = AsmProgram;
 
     fn generate_on(&self, env: &mut Environment, asm: &mut AsmProgram) -> Result<(), AsmError> {
@@ -108,12 +110,12 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmLo
     }
 }
 
-impl GenerateAsm for FunctionData {
+impl EntityAsmGenerator for FunctionData {
     type AsmTarget = AsmGlobal;
 
     fn generate_on(&self, env: &mut Environment, asm: &mut AsmGlobal) -> Result<(), AsmError> {
         let prologue = asm.locals_mut().last_mut().unwrap();
-        env.fs.build_prologue(self, prologue);
+        env.sf.build_prologue(self, prologue);
 
         // load params first
         for (index, &p) in self.params().iter().enumerate() {
@@ -122,21 +124,21 @@ impl GenerateAsm for FunctionData {
         }
 
         for (&bb, node) in self.layout().bbs() {
-            let mut local = AsmLocal::new(Some(env.label_gen.get_name(bb)));
+            let mut local = AsmLocal::new(Some(env.l_gen.get_name(bb)));
             for &inst in node.insts().keys() {
                 self.dfg().value(inst).generate_on(env, &mut local)?;
             }
             asm.new_local(local);
         }
 
-        RegisterAssigner::default().assign(asm, &mut env.fs);
+        RegisterAssigner::default().assign(asm, &mut env.sf);
         env.man.end_func();
-        env.fs.end_fill(asm)?;
+        env.sf.end_fill(asm)?;
         Ok(())
     }
 }
 
-impl GenerateAsm for ValueData {
+impl EntityAsmGenerator for ValueData {
     type AsmTarget = AsmLocal;
 
     fn generate_on(&self, env: &mut Environment, asm: &mut AsmLocal) -> Result<(), AsmError> {
@@ -163,7 +165,7 @@ impl GenerateAsm for ValueData {
 /// Trait for generating values.
 ///
 /// This trait is implemented by all the [`ValueKind`] that can be translated into assembly code.
-trait ValueGenerator {
+trait ValueAsmGenerator {
     /// Generate assembly code for the value when known the return data.
     ///
     /// # Errors
@@ -177,7 +179,7 @@ trait ValueGenerator {
     ) -> Result<(), AsmError>;
 }
 
-impl ValueGenerator for Alloc {
+impl ValueAsmGenerator for Alloc {
     fn generate_on(
         &self,
         ret_data: &ValueData,
@@ -189,7 +191,7 @@ impl ValueGenerator for Alloc {
             _ => unreachable!("Alloc type should always be a pointer"),
         };
         // malloc the data
-        let stack = env.fs.malloc(size)?;
+        let stack = env.sf.malloc(size)?;
         // new value "self" as a pointer
         let reg = env.man.new_reg();
         let mut pack = InfoPack::new(reg);
@@ -198,7 +200,7 @@ impl ValueGenerator for Alloc {
     }
 }
 
-impl ValueGenerator for Store {
+impl ValueAsmGenerator for Store {
     fn generate_on(
         &self,
         _: &ValueData,
@@ -207,12 +209,12 @@ impl ValueGenerator for Store {
     ) -> Result<(), AsmError> {
         let src = env.new_pack(self.value())?;
         let dest = env.new_pack(self.dest())?;
-        env.man.save_deref_to(src, dest, asm);
+        env.man.save_to_deref(src, dest, asm);
         Ok(())
     }
 }
 
-impl ValueGenerator for Load {
+impl ValueAsmGenerator for Load {
     fn generate_on(
         &self,
         ret_data: &ValueData,
@@ -225,7 +227,7 @@ impl ValueGenerator for Load {
     }
 }
 
-impl ValueGenerator for Binary {
+impl ValueAsmGenerator for Binary {
     fn generate_on(
         &self,
         ret_data: &ValueData,
@@ -281,7 +283,7 @@ impl ValueGenerator for Binary {
     }
 }
 
-impl ValueGenerator for Return {
+impl ValueAsmGenerator for Return {
     fn generate_on(
         &self,
         _: &ValueData,
@@ -294,13 +296,13 @@ impl ValueGenerator for Return {
             env.man.load_to(&e, &mut pack)?;
             pack.write_on(asm);
         }
-        env.fs.build_epilogue(asm)?;
+        env.sf.build_epilogue(asm)?;
         asm.insts_mut().push(Inst::Ret);
         Ok(())
     }
 }
 
-impl ValueGenerator for Jump {
+impl ValueAsmGenerator for Jump {
     fn generate_on(
         &self,
         _: &ValueData,
@@ -308,12 +310,12 @@ impl ValueGenerator for Jump {
         asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let label = self.target();
-        asm.insts_mut().push(Inst::J(env.label_gen.get_name(label)));
+        asm.insts_mut().push(Inst::J(env.l_gen.get_name(label)));
         Ok(())
     }
 }
 
-impl ValueGenerator for Branch {
+impl ValueAsmGenerator for Branch {
     fn generate_on(
         &self,
         _: &ValueData,
@@ -325,15 +327,14 @@ impl ValueGenerator for Branch {
         pack.write_on(asm);
         let true_bb = self.true_bb();
         asm.insts_mut()
-            .push(Inst::Bnez(rs, env.label_gen.get_name(true_bb)));
+            .push(Inst::Bnez(rs, env.l_gen.get_name(true_bb)));
         let false_bb = self.false_bb();
-        asm.insts_mut()
-            .push(Inst::J(env.label_gen.get_name(false_bb)));
+        asm.insts_mut().push(Inst::J(env.l_gen.get_name(false_bb)));
         Ok(())
     }
 }
 
-impl ValueGenerator for Call {
+impl ValueAsmGenerator for Call {
     fn generate_on(
         &self,
         ret_data: &ValueData,
@@ -359,7 +360,7 @@ impl ValueGenerator for Call {
     }
 }
 
-impl ValueGenerator for GetElemPtr {
+impl ValueAsmGenerator for GetElemPtr {
     fn generate_on(
         &self,
         ret_data: &ValueData,
@@ -385,7 +386,7 @@ impl ValueGenerator for GetElemPtr {
     }
 }
 
-impl ValueGenerator for GetPtr {
+impl ValueAsmGenerator for GetPtr {
     fn generate_on(
         &self,
         ret_data: &ValueData,

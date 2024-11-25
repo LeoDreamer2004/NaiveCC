@@ -1,4 +1,5 @@
 //! Data Flow Analysis for optimization.
+
 use super::instruction::{Inst, Label};
 use super::program::AsmGlobal;
 use super::registers::Register;
@@ -44,7 +45,7 @@ impl<'a> AsmSerializer<'a> {
 
 /// Flow graph for a function.
 ///
-/// The graph is a directed graph, where each point is the label of a basic block.
+/// A directed graph, where each point is the label of a basic block.
 #[derive(Default, Debug)]
 pub struct FunctionFlowGraph {
     edges: HashMap<Label, Vec<Label>>,
@@ -123,6 +124,7 @@ impl FunctionFlowGraph {
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! debug_insts {
     ($map:expr, $ser:expr) => {
         println!(stringify!($map));

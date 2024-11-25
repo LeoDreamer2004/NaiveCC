@@ -3,11 +3,11 @@ use koopa::opt::FunctionPass;
 use std::collections::HashMap;
 
 #[derive(Default)]
-pub struct BlockGraphSimplifier {
+pub struct BlockFlowSimplifier {
     pub edges: HashMap<BasicBlock, Vec<BasicBlock>>,
 }
 
-impl FunctionPass for BlockGraphSimplifier {
+impl FunctionPass for BlockFlowSimplifier {
     fn run_on(&mut self, _: Function, data: &mut FunctionData) {
         self.build_graph(data);
         while let Some((from, to)) = self.scan() {
@@ -16,7 +16,7 @@ impl FunctionPass for BlockGraphSimplifier {
     }
 }
 
-impl BlockGraphSimplifier {
+impl BlockFlowSimplifier {
     fn build_graph(&mut self, data: &FunctionData) {
         for (&bb, node) in data.layout().bbs() {
             let mut edges = Vec::new();

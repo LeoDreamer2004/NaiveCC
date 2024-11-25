@@ -13,7 +13,7 @@ mod registers;
 
 use constants::*;
 use env::Environment;
-use generate::GenerateAsm;
+use generate::EntityAsmGenerator;
 use koopa::ir::Program;
 use opt::AsmOptimizeManager;
 use program::AsmProgram;
