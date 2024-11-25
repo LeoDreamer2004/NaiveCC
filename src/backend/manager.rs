@@ -239,12 +239,21 @@ impl AsmManager {
                 self.load_val_to(ptr.clone(), &mut p)?;
                 p.write_on(asm);
 
-                let mut p = InfoPack::new(self.new_reg());
-                self.load_imm_to(unit_size as i32, &mut p)?;
-                let unit = p.reg;
-                p.write_on(asm);
+                if unit_size.count_ones() == 1 {
+                    // Simple case: unit_size is a power of 2
+                    pack.insts.push(Inst::Slli(
+                        FREE_REG,
+                        FREE_REG,
+                        unit_size.trailing_zeros() as i32,
+                    ));
+                } else {
+                    let mut p = InfoPack::new(self.new_reg());
+                    self.load_imm_to(unit_size as i32, &mut p)?;
+                    let unit = p.reg;
+                    p.write_on(asm);
+                    pack.insts.push(Inst::Mul(FREE_REG, FREE_REG, unit));
+                }
 
-                pack.insts.push(Inst::Mul(FREE_REG, FREE_REG, unit));
                 pack.insts.push(Inst::Add(reg, reg, FREE_REG));
             }
             AsmElement::Imm(imm) => {
@@ -260,7 +269,7 @@ impl AsmManager {
 
     fn param_location(index: usize) -> Location {
         if index < MAX_PARAM_REG {
-            RegisterType::all(&RegisterType::Arg)[index].to_loc()
+            RegisterType::Arg.all()[index].to_loc()
         } else {
             let offset = ((index - MAX_PARAM_REG) * INT_SIZE) as i32;
             Stack { base: SP, offset }.to_loc()

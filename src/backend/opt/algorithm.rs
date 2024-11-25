@@ -1,7 +1,7 @@
-use super::{AsmHelper, Optimizer};
-use crate::backend::instruction::*;
-use crate::backend::is_imm12;
-use crate::backend::program::AsmLocal;
+use super::super::instruction::*;
+use super::super::is_imm12;
+use super::super::program::AsmLocal;
+use super::{AsmHelper, LocalOptimizer};
 
 #[derive(Default)]
 pub struct AlgorithmOptimizer;
@@ -21,7 +21,7 @@ macro_rules! check_reg {
     }};
 }
 
-impl Optimizer for AlgorithmOptimizer {
+impl LocalOptimizer for AlgorithmOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
         let mut helper = AsmHelper::new(asm);
         let mut csr = helper.new_cursor();
@@ -39,6 +39,12 @@ impl Optimizer for AlgorithmOptimizer {
                     csr.remove_cur();
                     csr.insert(Inst::Addi(rd, another, imm));
                 }
+                (Inst::Li(r, imm), Inst::Sub(rd, rs1, rs2)) => {
+                    csr.next();
+                    let another = check_reg!(r, -imm, rs1, rs2);
+                    csr.remove_cur();
+                    csr.insert(Inst::Addi(rd, another, -imm));
+                }
                 (Inst::Li(r, imm), Inst::Mul(rd, rs1, rs2)) => {
                     // maybe use bits to check if imm is a power of 2
                     if imm.count_ones() == 1 {
@@ -46,6 +52,15 @@ impl Optimizer for AlgorithmOptimizer {
                         let another = check_reg!(r, imm, rs1, rs2);
                         csr.remove_cur();
                         csr.insert(Inst::Slli(rd, another, imm.trailing_zeros() as i32));
+                    }
+                }
+                (Inst::Li(r, imm), Inst::Div(rd, rs1, rs2)) => {
+                    // maybe use bits to check if imm is a power of 2
+                    if imm.count_ones() == 1 {
+                        csr.next();
+                        let another = check_reg!(r, imm, rs1, rs2);
+                        csr.remove_cur();
+                        csr.insert(Inst::Srai(rd, another, imm.trailing_zeros() as i32));
                     }
                 }
                 (Inst::Li(r, imm), Inst::Or(rd, rs1, rs2)) => {
@@ -88,7 +103,7 @@ impl Optimizer for AlgorithmOptimizer {
             };
             csr.next();
         }
-        
+
         let asm = helper.result();
         let mut helper = AsmHelper::new(&asm);
         let mut csr = helper.new_cursor();

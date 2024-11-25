@@ -1,12 +1,12 @@
-use super::{AsmHelper, Optimizer};
-use crate::backend::program::AsmLocal;
-use crate::backend::registers::FREE_REG;
-use crate::backend::{instruction::*, is_imm12};
+use super::super::program::AsmLocal;
+use super::super::registers::FREE_REG;
+use super::super::{instruction::*, is_imm12};
+use super::{AsmHelper, LocalOptimizer};
 
 #[derive(Default)]
 pub struct ImmFixOptimizer;
 
-impl Optimizer for ImmFixOptimizer {
+impl LocalOptimizer for ImmFixOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
         let mut helper = AsmHelper::new(asm);
         let mut csr = helper.new_cursor();

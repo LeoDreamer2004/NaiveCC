@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use super::{AsmHelper, Optimizer};
+use super::{AsmHelper, LocalOptimizer};
 use crate::backend::instruction::*;
 use crate::backend::program::AsmLocal;
 
 #[derive(Default)]
 pub struct PeepholeOptimizer;
 
-impl Optimizer for PeepholeOptimizer {
+impl LocalOptimizer for PeepholeOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
         let mut helper = AsmHelper::new(asm);
         let mut csr = helper.new_cursor();

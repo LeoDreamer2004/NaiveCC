@@ -40,10 +40,13 @@ pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
 /// Optimize the assembly code.
 pub fn opt_asm(program: AsmProgram) -> AsmProgram {
     let mut man = AsmOptimizeManager::new();
-    man.add(Box::new(AlgorithmOptimizer::default()));
-    man.add(Box::new(PeepholeOptimizer::default()));
-    man.add(Box::new(PeepholeOptimizer::default()));
-    man.add(Box::new(ImmFixOptimizer::default()));
+    man.add(Optimizer::Local(Box::new(AlgorithmOptimizer::default())));
+    man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
+    man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
+    man.add(Optimizer::Global(Box::new(DeadCodeOptimizer::default())));
+    man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
+    man.add(Optimizer::Local(Box::new(AlgorithmOptimizer::default())));
+    man.add(Optimizer::Local(Box::new(ImmFixOptimizer::default())));
     man.run(program)
 }
 

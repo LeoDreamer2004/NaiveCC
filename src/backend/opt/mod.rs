@@ -1,20 +1,31 @@
 mod algorithm;
+mod dce;
 mod helper;
 mod immfix;
 mod peephole;
 
 use super::program::{AsmGlobal, AsmLocal, AsmProgram};
 pub use algorithm::AlgorithmOptimizer;
+pub use dce::DeadCodeOptimizer;
 use helper::AsmHelper;
 pub use immfix::ImmFixOptimizer;
 pub use peephole::PeepholeOptimizer;
 
 pub struct AsmOptimizeManager {
-    optimizers: Vec<Box<dyn Optimizer>>,
+    optimizers: Vec<Optimizer>,
 }
 
-pub trait Optimizer {
+pub enum Optimizer {
+    Local(Box<dyn LocalOptimizer>),
+    Global(Box<dyn GlobalOptimizer>),
+}
+
+pub trait LocalOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal;
+}
+
+pub trait GlobalOptimizer {
+    fn run(&mut self, asm: &AsmGlobal) -> AsmGlobal;
 }
 
 impl AsmOptimizeManager {
@@ -24,18 +35,21 @@ impl AsmOptimizeManager {
         }
     }
 
-    pub fn add(&mut self, opt: Box<dyn Optimizer>) {
+    pub fn add(&mut self, opt: Optimizer) {
         self.optimizers.push(opt);
     }
 
     pub fn run(&mut self, asm: AsmProgram) -> AsmProgram {
         let mut asm = asm;
         for opt in self.optimizers.iter_mut() {
-            let mut res = AsmProgram::new();
             for g in asm.globals_mut() {
-                res.new_global(AsmGlobal::new_from(g));
-                for l in g.locals_mut() {
-                    *l = opt.run(l);
+                match opt {
+                    Optimizer::Global(opt) => *g = opt.run(g),
+                    Optimizer::Local(opt) => {
+                        for l in g.locals_mut() {
+                            *l = opt.run(l);
+                        }
+                    }
                 }
             }
         }

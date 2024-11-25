@@ -1,5 +1,5 @@
-use crate::backend::instruction::Inst;
-use crate::backend::program::AsmLocal;
+use super::super::instruction::Inst;
+use super::super::program::AsmLocal;
 
 pub struct AsmHelper {
     insts: Vec<Inst>,

@@ -78,7 +78,7 @@ impl RegisterInterferenceGraph {
     fn real_reg(&self, reg: &FakeRegister) -> Register {
         let color = *self.color_map.get(&Self::to_idx(reg)).unwrap();
         let idx = self.color_idx(color).expect("Bad color");
-        RegisterType::all(&RegisterType::Temp)[idx]
+        RegisterType::Temp.all()[idx]
     }
 
     fn has_space(&self, reg: &FakeRegister) -> bool {
@@ -130,7 +130,7 @@ impl RegisterInterferenceGraph {
                     }
                 }
                 for reg in inst.src_regs() {
-                    active_set.insert(reg.clone());
+                    active_set.insert(*reg);
                 }
                 self.add_edges_in_set(&active_set);
             }
