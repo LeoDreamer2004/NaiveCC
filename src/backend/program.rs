@@ -2,7 +2,6 @@ use super::instruction::{Inst, Label};
 use crate::utils::namer::UniqueNameGenerator;
 use std::io;
 
-// pub type AsmProgram = Vec<Inst>;
 pub struct AsmProgram {
     globals: Vec<AsmGlobal>,
 }
@@ -20,7 +19,6 @@ pub struct AsmLocal {
     label: Option<Label>,
     insts: Vec<Inst>,
 }
-
 
 /// **Section**: .text or .data.
 #[derive(Debug, Clone)]

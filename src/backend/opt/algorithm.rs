@@ -3,13 +3,8 @@ use crate::backend::instruction::*;
 use crate::backend::is_imm12;
 use crate::backend::program::AsmLocal;
 
-pub struct AlgorithmOptimizer {}
-
-impl AlgorithmOptimizer {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+#[derive(Default)]
+pub struct AlgorithmOptimizer;
 
 macro_rules! check_reg {
     ($r:expr, $imm:expr, $rs1:expr, $rs2:expr) => {{
@@ -31,13 +26,7 @@ impl Optimizer for AlgorithmOptimizer {
         let mut helper = AsmHelper::new(asm);
         let mut csr = helper.new_cursor();
 
-        let mut remove_next = false;
         while !csr.end() {
-            csr.next();
-            if remove_next {
-                csr.remove_cur();
-                remove_next = false;
-            }
             if csr.peek(1).is_none() {
                 csr.go_to_end();
                 break;
@@ -46,39 +35,58 @@ impl Optimizer for AlgorithmOptimizer {
             match (csr.current().clone(), next.clone()) {
                 (Inst::Li(r, imm), Inst::Add(rd, rs1, rs2)) => {
                     let another = check_reg!(r, imm, rs1, rs2);
+                    csr.next();
                     csr.remove_cur();
-                    remove_next = true;
                     csr.insert(Inst::Addi(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::Mul(rd, rs1, rs2)) => {
                     let another = check_reg!(r, imm, rs1, rs2);
                     // maybe use bits to check if imm is a power of 2
                     if imm.count_ones() == 1 {
+                        csr.next();
                         csr.remove_cur();
-                        remove_next = true;
                         csr.insert(Inst::Slli(rd, another, imm.trailing_zeros() as i32));
                     }
                 }
                 (Inst::Li(r, imm), Inst::Or(rd, rs1, rs2)) => {
                     let another = check_reg!(r, imm, rs1, rs2);
+                    csr.next();
                     csr.remove_cur();
-                    remove_next = true;
                     csr.insert(Inst::Ori(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::And(rd, rs1, rs2)) => {
                     let another = check_reg!(r, imm, rs1, rs2);
+                    csr.next();
                     csr.remove_cur();
-                    remove_next = true;
                     csr.insert(Inst::Andi(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::Xor(rd, rs1, rs2)) => {
                     let another = check_reg!(r, imm, rs1, rs2);
+                    csr.next();
                     csr.remove_cur();
-                    remove_next = true;
                     csr.insert(Inst::Xori(rd, another, imm));
+                }
+                (Inst::Li(r, imm), Inst::Sll(rd, rs1, rs2)) => {
+                    let another = check_reg!(r, imm, rs1, rs2);
+                    csr.next();
+                    csr.remove_cur();
+                    csr.insert(Inst::Slli(rd, another, imm));
+                }
+                (Inst::Li(r, imm), Inst::Srl(rd, rs1, rs2)) => {
+                    let another = check_reg!(r, imm, rs1, rs2);
+                    csr.next();
+                    csr.remove_cur();
+                    csr.insert(Inst::Srli(rd, another, imm));
+                }
+                (Inst::Li(r, imm), Inst::Sra(rd, rs1, rs2)) => {
+                    let another = check_reg!(r, imm, rs1, rs2);
+                    csr.next();
+                    csr.remove_cur();
+                    csr.insert(Inst::Srai(rd, another, imm));
                 }
                 _ => {}
             };
+            csr.next();
         }
 
         let asm = helper.result();

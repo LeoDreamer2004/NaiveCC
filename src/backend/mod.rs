@@ -15,7 +15,7 @@ use constants::*;
 use env::Environment;
 use generate::EntityAsmGenerator;
 use koopa::ir::Program;
-use opt::AsmOptimizeManager;
+use opt::*;
 use program::AsmProgram;
 use std::io;
 
@@ -39,8 +39,12 @@ pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
 
 /// Optimize the assembly code.
 pub fn opt_asm(program: AsmProgram) -> AsmProgram {
-    let mut optman = AsmOptimizeManager::default();
-    optman.run(program)
+    let mut man = AsmOptimizeManager::new();
+    man.add(Box::new(AlgorithmOptimizer::default()));
+    man.add(Box::new(PeepholeOptimizer::default()));
+    man.add(Box::new(PeepholeOptimizer::default()));
+    man.add(Box::new(ImmFixOptimizer::default()));
+    man.run(program)
 }
 
 /// Emit the assembly code to the given output.

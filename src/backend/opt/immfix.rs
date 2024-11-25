@@ -3,13 +3,8 @@ use crate::backend::program::AsmLocal;
 use crate::backend::registers::FREE_REG;
 use crate::backend::{instruction::*, is_imm12};
 
-pub struct ImmFixOptimizer {}
-
-impl ImmFixOptimizer {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+#[derive(Default)]
+pub struct ImmFixOptimizer;
 
 impl Optimizer for ImmFixOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {

@@ -1,26 +1,17 @@
+use std::collections::HashMap;
+
 use super::{AsmHelper, Optimizer};
 use crate::backend::instruction::*;
 use crate::backend::program::AsmLocal;
 
-pub struct PeepholeOptimizer {}
-
-impl PeepholeOptimizer {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+#[derive(Default)]
+pub struct PeepholeOptimizer;
 
 impl Optimizer for PeepholeOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
         let mut helper = AsmHelper::new(asm);
         let mut csr = helper.new_cursor();
-        let mut go_next = false;
         while !csr.end() {
-            if go_next {
-                csr.next();
-            } else {
-                go_next = true;
-            }
             let next = match csr.peek(1) {
                 Some(next) => next,
                 None => {
@@ -33,7 +24,6 @@ impl Optimizer for PeepholeOptimizer {
                     if r2 == r4 && imm == imm2 {
                         csr.next();
                         csr.remove_cur();
-                        go_next = false;
                         if r1 != r3 {
                             csr.insert(Inst::Mv(r3, r1));
                         }
@@ -43,14 +33,12 @@ impl Optimizer for PeepholeOptimizer {
                     if r1 == r3 && r2 == r4 && imm == imm2 {
                         csr.next();
                         csr.remove_cur();
-                        go_next = false;
                     }
                 }
                 (Inst::Mv(r1, r2), Inst::Mv(r3, r4)) => {
                     if r1 == r4 && r2 == r3 {
                         csr.next();
                         csr.remove_cur();
-                        go_next = false;
                     }
                 }
                 (i1, i2) => {
@@ -63,6 +51,35 @@ impl Optimizer for PeepholeOptimizer {
                     }
                 }
             }
+            csr.next();
+        }
+
+        // remove the extra immediate loading
+        let asm = helper.result();
+        let mut helper = AsmHelper::new(&asm);
+        let mut map = HashMap::new();
+        let mut csr = helper.new_cursor();
+        while !csr.end() {
+            let inst = csr.current().clone();
+            match inst {
+                Inst::Li(r, imm) => {
+                    if let Some(i) = map.get(&r) {
+                        if imm == *i {
+                            csr.remove_cur();
+                        }
+                    }
+                    map.insert(r, imm);
+                }
+                Inst::Call(_) => {
+                    map.clear();
+                }
+                inst => {
+                    if let Some(r) = inst.dest_reg() {
+                        map.remove(r);
+                    }
+                }
+            }
+            csr.next();
         }
         helper.result()
     }
