@@ -34,53 +34,53 @@ impl Optimizer for AlgorithmOptimizer {
             let next = csr.peek(1).unwrap();
             match (csr.current().clone(), next.clone()) {
                 (Inst::Li(r, imm), Inst::Add(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.next();
+                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.remove_cur();
                     csr.insert(Inst::Addi(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::Mul(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     // maybe use bits to check if imm is a power of 2
                     if imm.count_ones() == 1 {
                         csr.next();
+                        let another = check_reg!(r, imm, rs1, rs2);
                         csr.remove_cur();
                         csr.insert(Inst::Slli(rd, another, imm.trailing_zeros() as i32));
                     }
                 }
                 (Inst::Li(r, imm), Inst::Or(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.next();
+                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.remove_cur();
                     csr.insert(Inst::Ori(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::And(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.next();
+                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.remove_cur();
                     csr.insert(Inst::Andi(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::Xor(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.next();
+                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.remove_cur();
                     csr.insert(Inst::Xori(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::Sll(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.next();
+                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.remove_cur();
                     csr.insert(Inst::Slli(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::Srl(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.next();
+                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.remove_cur();
                     csr.insert(Inst::Srli(rd, another, imm));
                 }
                 (Inst::Li(r, imm), Inst::Sra(rd, rs1, rs2)) => {
-                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.next();
+                    let another = check_reg!(r, imm, rs1, rs2);
                     csr.remove_cur();
                     csr.insert(Inst::Srai(rd, another, imm));
                 }
@@ -88,7 +88,7 @@ impl Optimizer for AlgorithmOptimizer {
             };
             csr.next();
         }
-
+        
         let asm = helper.result();
         let mut helper = AsmHelper::new(&asm);
         let mut csr = helper.new_cursor();
@@ -108,7 +108,6 @@ impl Optimizer for AlgorithmOptimizer {
             }
             csr.next();
         }
-
         helper.result()
     }
 }
