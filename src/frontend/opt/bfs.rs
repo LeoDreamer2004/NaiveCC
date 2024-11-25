@@ -56,7 +56,8 @@ impl BlockGraphSimplifier {
 
     fn merge(from: BasicBlock, to: BasicBlock, data: &mut FunctionData) {
         let insts: Vec<Value> = all_insts!(data, to).iter().map(|(inst, _)| *inst).collect();
-        if !data.dfg().bb(to).used_by().is_empty() {
+        if data.dfg().bb(to).used_by().len() > 1 {
+            // FIXME: in case of multiple uses (unknown bug)
             return;
         }
         let (end, _) = all_insts!(data, from).pop_back().unwrap();
