@@ -5,50 +5,11 @@ use super::builtin::set_up_builtins;
 use super::env::Environment;
 use super::eval::Eval;
 use super::loops::*;
-use super::opt::*;
 use super::symbol::*;
+use super::AstError;
 use crate::utils::namer::{global_ident, normal_ident};
-use koopa::back::KoopaGenerator;
 use koopa::ir::builder::*;
-use koopa::ir::Type;
-use koopa::ir::TypeKind;
-use koopa::ir::{BinaryOp, FunctionData, Program, Value};
-use koopa::opt::{Pass, PassManager};
-use std::io;
-
-pub fn build_ir(ast: CompUnit) -> Result<Program, AstError> {
-    let mut env = Environment::default();
-    ast.generate_on(&mut env)?;
-    let mut program = env.program;
-
-    let mut passman = PassManager::new();
-    passman.register(Pass::Function(Box::new(DeadBlockElimination::default())));
-    // passman.register(Pass::Function(Box::new(BlockGraphSimplifier::default())));
-    passman.register(Pass::Function(Box::new(ConstantsInline::default())));
-    passman.register(Pass::Function(Box::new(DeadCodeElimination::default())));
-    passman.register(Pass::Function(Box::new(CommonSubexpression::default())));
-    passman.run_passes(&mut program);
-    Ok(program)
-}
-
-pub fn emit_ir(program: &mut Program, output: impl io::Write) -> Result<(), io::Error> {
-    KoopaGenerator::new(output).generate_on(program)
-}
-
-/*********************  Structs  *********************/
-
-#[derive(Debug)]
-pub enum AstError {
-    FunctionNotFoundError(String),
-    IllegalConstExpError(String),
-    SymbolNotFoundError(String),
-    InitializeError(String),
-    IllegalAccessError(String),
-    LoopStackError(String),
-    AssignError(String),
-    TypeError(String),
-    UnknownError(String),
-}
+use koopa::ir::{BinaryOp, FunctionData, Type, TypeKind, Value};
 
 /// Trait which should be implemented by AST types to generate IR
 ///
@@ -67,7 +28,7 @@ impl GenerateIr for CompUnit {
     type IrTarget = ();
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
-        set_up_builtins(env);
+        set_up_builtins(&mut env.ctx);
 
         for comp_item in &self.comp_items {
             match comp_item {
@@ -87,12 +48,12 @@ impl GenerateIr for FuncDef {
     type IrTarget = ();
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
-        env.syb_table.enter_scope();
+        env.table.enter_scope();
 
         let mut p_types = vec![];
         let mut params = vec![];
         for param in &self.params {
-            let symbol = env.syb_table.new_symbol(param)?.symbol();
+            let symbol = env.table.new_symbol(param)?.symbol();
             let ty = symbol.get_type(param.b_type.into())?;
             p_types.push(ty.clone());
             params.push((Some(global_ident(symbol.ident())), ty));
@@ -104,24 +65,24 @@ impl GenerateIr for FuncDef {
             self.func_type.into(),
         );
 
-        let func = env.program.new_func(func);
-        env.func(func);
-        env.create_block(Some("%entry".into()));
+        let func = env.ctx.program.new_func(func);
+        env.ctx.func(func);
+        env.ctx.create_block(Some("%entry".into()));
 
         // Add parameters to the symbol table
         for (i, param) in self.params.iter().enumerate() {
-            let value = env.func_data().params()[i];
-            let alloc = env.alloc_and_store(value, p_types[i].clone());
-            env.set_value_name(alloc, normal_ident(&param.ident));
-            env.syb_table.set_alloc(&param.get_ident(), alloc)?;
+            let value = env.ctx.func_data().params()[i];
+            let alloc = env.ctx.alloc_and_store(value, p_types[i].clone());
+            env.ctx.set_value_name(alloc, normal_ident(&param.ident));
+            env.table.set_alloc(&param.ident(), alloc)?;
         }
         self.block.generate_on(env)?;
-        env.syb_table.exit_scope();
+        env.table.exit_scope();
 
-        let ret = env.local_value().ret(None);
-        env.add_inst(ret);
-        env.block = None;
-        env.func = None;
+        let ret = env.ctx.local_value().ret(None);
+        env.ctx.add_inst(ret);
+        env.ctx.block = None;
+        env.ctx.func = None;
         Ok(())
     }
 }
@@ -144,8 +105,8 @@ impl GenerateIr for Block {
         if self.block_items.is_empty() {
             return Ok(());
         }
-        env.new_block(None, true);
-        env.syb_table.enter_scope();
+        env.ctx.new_block(None, true);
+        env.table.enter_scope();
 
         for block_item in &self.block_items {
             match block_item {
@@ -169,8 +130,8 @@ impl GenerateIr for Block {
                 BlockItem::Decl(decl) => decl.generate_on(env)?,
             };
         }
-        env.syb_table.exit_scope();
-        env.new_block(None, true);
+        env.table.exit_scope();
+        env.ctx.new_block(None, true);
         Ok(())
     }
 }
@@ -198,7 +159,7 @@ impl GenerateIr for LVal {
 
     /// Returns the address of the left value
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
-        match env.syb_table.lookup_item(&self.ident) {
+        match env.table.lookup_item(&self.ident) {
             Some(item) => match item {
                 SymbolItem::Var(symbol) => symbol.get_alloc(),
                 SymbolItem::VarArray(symbol) => {
@@ -207,7 +168,7 @@ impl GenerateIr for LVal {
                     for exp in &self.array_index {
                         indexes.push(exp.generate_on(env)?);
                     }
-                    let addr = symbol.index(&indexes, env)?;
+                    let addr = symbol.index(&indexes, &mut env.ctx)?;
                     Ok(addr)
                 }
                 SymbolItem::FParamArray(symbol) => {
@@ -216,7 +177,7 @@ impl GenerateIr for LVal {
                     for exp in &self.array_index {
                         indexes.push(exp.generate_on(env)?);
                     }
-                    let addr = symbol.index(&indexes, env)?;
+                    let addr = symbol.index(&indexes, &mut env.ctx)?;
                     Ok(addr)
                 }
                 SymbolItem::Const(_) => panic!("Constant are not a left value!"),
@@ -226,10 +187,10 @@ impl GenerateIr for LVal {
                     for exp in &self.array_index {
                         indexes.push(exp.generate_on(env)?);
                     }
-                    let addr = symbol.index(&indexes, env)?;
+                    let addr = symbol.index(&indexes, &mut env.ctx)?;
                     Ok(addr)
                 }
-                SymbolItem::ScopeSeparator(_) => unreachable!(),
+                SymbolItem::ScopeSeparator => unreachable!(),
             },
             None => Err(AstError::SymbolNotFoundError(self.ident.clone())),
         }
@@ -244,8 +205,8 @@ impl GenerateIr for Return {
             Some(exp) => Some(exp.generate_on(env)?),
             None => None,
         };
-        let ret = env.local_value().ret(ret);
-        env.add_inst(ret);
+        let ret = env.ctx.local_value().ret(ret);
+        env.ctx.add_inst(ret);
         Ok(())
     }
 }
@@ -256,8 +217,8 @@ impl GenerateIr for Assign {
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let alloc = self.l_val.generate_on(env)?;
         let value = self.exp.generate_on(env)?;
-        let store = env.local_value().store(value, alloc);
-        env.add_inst(store);
+        let store = env.ctx.local_value().store(value, alloc);
+        env.ctx.add_inst(store);
         Ok(())
     }
 }
@@ -267,30 +228,30 @@ impl GenerateIr for If {
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let cond = self.cond.generate_on(env)?;
-        let base_bb = env.block.unwrap();
+        let base_bb = env.ctx.block.unwrap();
 
-        let true_bb = env.new_block(Some("%then".into()), false);
+        let true_bb = env.ctx.new_block(Some("%then".into()), false);
         self.stmt.generate_on(env)?;
         // always create a new ending block for the then statement
         // even if it is not a block statement
-        let true_end_bb = env.new_block(Some("%then_end".into()), true);
+        let true_end_bb = env.ctx.new_block(Some("%then_end".into()), true);
 
         if let Some(else_stmt) = &self.else_stmt {
-            let false_bb = env.new_block(Some("%else".into()), false);
+            let false_bb = env.ctx.new_block(Some("%else".into()), false);
             else_stmt.generate_on(env)?;
-            let end_bb = env.new_block(None, true);
+            let end_bb = env.ctx.new_block(None, true);
 
             // branch to true/false
-            let branch = env.local_value().branch(cond, true_bb, false_bb);
+            let branch = env.ctx.local_value().branch(cond, true_bb, false_bb);
             // true jump to end
-            let jump = env.local_value().jump(end_bb);
-            add_inst!(env.func_data(), base_bb, branch);
-            add_inst!(env.func_data(), true_end_bb, jump);
+            let jump = env.ctx.local_value().jump(end_bb);
+            add_inst!(env.ctx.func_data(), base_bb, branch);
+            add_inst!(env.ctx.func_data(), true_end_bb, jump);
         } else {
-            let end_bb = env.new_block(None, true);
+            let end_bb = env.ctx.new_block(None, true);
             // branch to true/end
-            let branch = env.local_value().branch(cond, true_bb, end_bb);
-            add_inst!(env.func_data(), base_bb, branch);
+            let branch = env.ctx.local_value().branch(cond, true_bb, end_bb);
+            add_inst!(env.ctx.func_data(), base_bb, branch);
         };
 
         Ok(())
@@ -301,46 +262,46 @@ impl GenerateIr for While {
     type IrTarget = ();
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
-        let block = env.block.unwrap();
-        let cond_bb = if env.in_entry() {
+        let block = env.ctx.block.unwrap();
+        let cond_bb = if env.ctx.in_entry() {
             // The entry basic block is not allowed to have predecessors
             // so create a new block for the condition
-            let cond_bb = env.new_block(Some("%cond".into()), false);
-            let jump = env.local_value().jump(cond_bb);
-            add_inst!(env.func_data(), block, jump);
+            let cond_bb = env.ctx.new_block(Some("%cond".into()), false);
+            let jump = env.ctx.local_value().jump(cond_bb);
+            add_inst!(env.ctx.func_data(), block, jump);
             cond_bb
         } else {
-            env.new_block(Some("%cond".into()), true)
+            env.ctx.new_block(Some("%cond".into()), true)
         };
 
         let cond = self.cond.generate_on(env)?;
-        let cond_end_bb = env.block.unwrap();
+        let cond_end_bb = env.ctx.block.unwrap();
         // use a temporary end block to serve for "break"
-        let temp_end_bb = env.new_block(None, false);
+        let temp_end_bb = env.ctx.new_block(None, false);
 
-        env.loop_stack.push(Loop {
+        env.loops.push(Loop {
             cond_bb,
             end_bb: temp_end_bb,
         });
-        let body_bb = env.new_block(Some("%body".into()), false);
+        let body_bb = env.ctx.new_block(Some("%body".into()), false);
         self.stmt.generate_on(env)?;
 
         // jump back to the condition
-        if !env.if_block_ended(&env.block.unwrap()) {
-            let jump = env.local_value().jump(cond_bb);
-            env.add_inst(jump);
+        if !env.ctx.if_block_ended(&env.ctx.block.unwrap()) {
+            let jump = env.ctx.local_value().jump(cond_bb);
+            env.ctx.add_inst(jump);
         }
 
-        let end_bb = env.new_block(None, true);
+        let end_bb = env.ctx.new_block(None, true);
         // branch to body/end
-        let branch = env.local_value().branch(cond, body_bb, end_bb);
+        let branch = env.ctx.local_value().branch(cond, body_bb, end_bb);
         // temp end block
-        let jump = env.local_value().jump(end_bb);
+        let jump = env.ctx.local_value().jump(end_bb);
 
-        add_inst!(env.func_data(), cond_end_bb, branch);
-        add_inst!(env.func_data(), temp_end_bb, jump);
+        add_inst!(env.ctx.func_data(), cond_end_bb, branch);
+        add_inst!(env.ctx.func_data(), temp_end_bb, jump);
 
-        env.loop_stack.pop();
+        env.loops.pop();
         Ok(())
     }
 }
@@ -350,12 +311,12 @@ impl GenerateIr for Break {
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let end_bb = env
-            .loop_stack
+            .loops
             .last()
             .ok_or(AstError::LoopStackError("break".into()))?
             .end_bb;
-        let jump = env.local_value().jump(end_bb);
-        env.add_inst(jump);
+        let jump = env.ctx.local_value().jump(end_bb);
+        env.ctx.add_inst(jump);
         Ok(())
     }
 }
@@ -365,12 +326,12 @@ impl GenerateIr for Continue {
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         let cond_bb = env
-            .loop_stack
+            .loops
             .last()
             .ok_or(AstError::LoopStackError("continue".into()))?
             .cond_bb;
-        let jump = env.local_value().jump(cond_bb);
-        env.add_inst(jump);
+        let jump = env.ctx.local_value().jump(cond_bb);
+        env.ctx.add_inst(jump);
         Ok(())
     }
 }
@@ -380,17 +341,13 @@ impl GenerateIr for ConstDecl {
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         for const_def in self.const_defs.clone() {
-            let item = env.syb_table.new_symbol(&const_def)?;
+            let item = env.table.new_symbol(&const_def)?.clone();
             let init = Some(Init::Const(const_def.const_init_val));
-            match item {
-                SymbolItem::Const(symbol) => {
-                    symbol.clone().gen_value(self.b_type.into(), &init, env)?;
-                }
-                SymbolItem::ConstArray(symbol) => {
-                    symbol.clone().gen_value(self.b_type.into(), &init, env)?;
-                }
-                _ => unreachable!(),
+            let symbol = item.symbol();
+            if !symbol.is_const() {
+                panic!("ConstDecl::generate_on: variable should be in VarDecl");
             }
+            symbol.gen_value(self.b_type.into(), &init, env)?;
         }
         Ok(())
     }
@@ -401,17 +358,13 @@ impl GenerateIr for VarDecl {
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
         for var_def in self.var_defs.clone() {
-            let item = env.syb_table.new_symbol(&var_def)?;
+            let item = env.table.new_symbol(&var_def)?.clone();
             let init = var_def.init_val.map(|init| Init::Var(init));
-            match item {
-                SymbolItem::Var(symbol) => {
-                    symbol.clone().gen_value(self.b_type.into(), &init, env)?;
-                }
-                SymbolItem::VarArray(symbol) => {
-                    symbol.clone().gen_value(self.b_type.into(), &init, env)?;
-                }
-                _ => unreachable!(),
+            let symbol = item.symbol();
+            if symbol.is_const() {
+                panic!("VarDecl::generate_on: const variable should be in ConstDecl");
             }
+            symbol.gen_value(self.b_type.into(), &init, env)?;
         }
         Ok(())
     }
@@ -422,7 +375,7 @@ impl GenerateIr for LValAssign {
 
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         let symbol = env
-            .syb_table
+            .table
             .lookup(&self.ident)
             .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?;
 
@@ -442,7 +395,8 @@ impl GenerateIr for Exp {
     type IrTarget = Value;
 
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
-        if let Ok(value) = self.eval(&env.syb_table) {
+        // try to evaluate the expression at compile time
+        if let Ok(value) = self.eval(&env.table) {
             return value.generate_on(env);
         }
 
@@ -457,7 +411,7 @@ impl GenerateIr for ConstExp {
 
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         // Const expressions must be evaluated at compile time
-        self.eval(&env.syb_table)?.generate_on(env)
+        self.eval(&env.table)?.generate_on(env)
     }
 }
 
@@ -481,28 +435,28 @@ impl GenerateIr for LOrExp {
                 // short circuit
 
                 // base block
-                let zero = env.local_value().integer(0);
+                let zero = env.ctx.local_value().integer(0);
                 let lhs = op_exp.l_or_exp.generate_on(env)?;
-                let l_binary = env.local_value().binary(BinaryOp::NotEq, lhs, zero);
-                env.add_inst(l_binary);
-                let result = env.alloc_and_store(l_binary, Type::get_i32());
-                let base_bb = env.block.unwrap();
+                let l_binary = env.ctx.local_value().binary(BinaryOp::NotEq, lhs, zero);
+                env.ctx.add_inst(l_binary);
+                let result = env.ctx.alloc_and_store(l_binary, Type::get_i32());
+                let base_bb = env.ctx.block.unwrap();
 
                 // false block
-                let false_bb = env.new_block(Some("%or_else".into()), false);
+                let false_bb = env.ctx.new_block(Some("%or_else".into()), false);
                 let rhs = op_exp.l_and_exp.generate_on(env)?;
-                let r_binary = env.local_value().binary(BinaryOp::NotEq, zero, rhs);
-                let cover = env.local_value().store(r_binary, result);
-                env.add_inst(r_binary);
-                env.add_inst(cover);
+                let r_binary = env.ctx.local_value().binary(BinaryOp::NotEq, zero, rhs);
+                let cover = env.ctx.local_value().store(r_binary, result);
+                env.ctx.add_inst(r_binary);
+                env.ctx.add_inst(cover);
 
                 // end block
-                let end_bb = env.new_block(None, true);
-                let branch = env.local_value().branch(l_binary, end_bb, false_bb);
-                add_inst!(env.func_data(), base_bb, branch);
+                let end_bb = env.ctx.new_block(None, true);
+                let branch = env.ctx.local_value().branch(l_binary, end_bb, false_bb);
+                add_inst!(env.ctx.func_data(), base_bb, branch);
 
-                let result = env.local_value().load(result);
-                env.add_inst(result);
+                let result = env.ctx.local_value().load(result);
+                env.ctx.add_inst(result);
                 Ok(result)
             }
         }
@@ -519,28 +473,28 @@ impl GenerateIr for LAndExp {
                 // short circuit
 
                 // base block
-                let zero = env.local_value().integer(0);
+                let zero = env.ctx.local_value().integer(0);
                 let lhs = op_exp.l_and_exp.generate_on(env)?;
-                let l_binary = env.local_value().binary(BinaryOp::NotEq, lhs, zero);
-                env.add_inst(l_binary);
-                let result = env.alloc_and_store(l_binary, Type::get_i32());
-                let base_bb = env.block.unwrap();
+                let l_binary = env.ctx.local_value().binary(BinaryOp::NotEq, lhs, zero);
+                env.ctx.add_inst(l_binary);
+                let result = env.ctx.alloc_and_store(l_binary, Type::get_i32());
+                let base_bb = env.ctx.block.unwrap();
 
                 // true block
-                let true_bb = env.new_block(Some("%and_else".into()), false);
+                let true_bb = env.ctx.new_block(Some("%and_else".into()), false);
                 let rhs = op_exp.eq_exp.generate_on(env)?;
-                let r_binary = env.local_value().binary(BinaryOp::NotEq, rhs, zero);
-                let cover = env.local_value().store(r_binary, result);
-                env.add_inst(r_binary);
-                env.add_inst(cover);
+                let r_binary = env.ctx.local_value().binary(BinaryOp::NotEq, rhs, zero);
+                let cover = env.ctx.local_value().store(r_binary, result);
+                env.ctx.add_inst(r_binary);
+                env.ctx.add_inst(cover);
 
                 // end block
-                let end_bb = env.new_block(None, true);
-                let branch = env.local_value().branch(l_binary, true_bb, end_bb);
-                add_inst!(env.func_data(), base_bb, branch);
+                let end_bb = env.ctx.new_block(None, true);
+                let branch = env.ctx.local_value().branch(l_binary, true_bb, end_bb);
+                add_inst!(env.ctx.func_data(), base_bb, branch);
 
-                let result = env.local_value().load(result);
-                env.add_inst(result);
+                let result = env.ctx.local_value().load(result);
+                env.ctx.add_inst(result);
                 Ok(result)
             }
         }
@@ -556,8 +510,8 @@ impl GenerateIr for EqExp {
             EqExp::EqOpExp(op_exp) => {
                 let lhs = op_exp.eq_exp.generate_on(env)?;
                 let rhs = op_exp.rel_exp.generate_on(env)?;
-                let value = env.local_value().binary(op_exp.eq_op.into(), lhs, rhs);
-                env.add_inst(value);
+                let value = env.ctx.local_value().binary(op_exp.eq_op.into(), lhs, rhs);
+                env.ctx.add_inst(value);
                 Ok(value)
             }
         }
@@ -573,8 +527,8 @@ impl GenerateIr for RelExp {
             RelExp::RelOpExp(op_exp) => {
                 let lhs = op_exp.rel_exp.generate_on(env)?;
                 let rhs = op_exp.add_exp.generate_on(env)?;
-                let value = env.local_value().binary(op_exp.rel_op.into(), lhs, rhs);
-                env.add_inst(value);
+                let value = env.ctx.local_value().binary(op_exp.rel_op.into(), lhs, rhs);
+                env.ctx.add_inst(value);
                 Ok(value)
             }
         }
@@ -590,8 +544,8 @@ impl GenerateIr for AddExp {
             AddExp::AddOpExp(op_exp) => {
                 let lhs = op_exp.add_exp.generate_on(env)?;
                 let rhs = op_exp.mul_exp.generate_on(env)?;
-                let value = env.local_value().binary(op_exp.add_op.into(), lhs, rhs);
-                env.add_inst(value);
+                let value = env.ctx.local_value().binary(op_exp.add_op.into(), lhs, rhs);
+                env.ctx.add_inst(value);
                 Ok(value)
             }
         }
@@ -607,8 +561,11 @@ impl GenerateIr for MulExp {
             MulExp::MulOpExp(mul_op_exp) => {
                 let lhs = mul_op_exp.mul_exp.generate_on(env)?;
                 let rhs = mul_op_exp.unary_exp.generate_on(env)?;
-                let value = env.local_value().binary(mul_op_exp.mul_op.into(), lhs, rhs);
-                env.add_inst(value);
+                let value = env
+                    .ctx
+                    .local_value()
+                    .binary(mul_op_exp.mul_op.into(), lhs, rhs);
+                env.ctx.add_inst(value);
                 Ok(value)
             }
         }
@@ -624,19 +581,19 @@ impl GenerateIr for UnaryExp {
 
             UnaryExp::UnaryOpExp(unary_op_exp) => {
                 let exp = unary_op_exp.unary_exp.generate_on(env)?;
-                let zero = env.local_value().integer(0);
+                let zero = env.ctx.local_value().integer(0);
                 let value = match unary_op_exp.unary_op {
                     UnaryOp::Pos => return Ok(exp),
-                    UnaryOp::Neg => env.local_value().binary(BinaryOp::Sub, zero, exp),
-                    UnaryOp::Not => env.local_value().binary(BinaryOp::Eq, exp, zero),
+                    UnaryOp::Neg => env.ctx.local_value().binary(BinaryOp::Sub, zero, exp),
+                    UnaryOp::Not => env.ctx.local_value().binary(BinaryOp::Eq, exp, zero),
                 };
-                env.add_inst(value);
+                env.ctx.add_inst(value);
                 Ok(value)
             }
 
             UnaryExp::FuncCall(func_call) => {
                 let mut callee = None;
-                for (&func, data) in env.program.funcs() {
+                for (&func, data) in env.ctx.program.funcs() {
                     if data.name() == global_ident(&func_call.ident).as_str() {
                         callee = Some(func);
                         break;
@@ -651,8 +608,8 @@ impl GenerateIr for UnaryExp {
                     args.push(arg);
                 }
 
-                let call = env.local_value().call(callee, args);
-                env.add_inst(call);
+                let call = env.ctx.local_value().call(callee, args);
+                env.ctx.add_inst(call);
                 Ok(call)
             }
         }
@@ -676,7 +633,7 @@ impl GenerateIr for LValExp {
 
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
         match env
-            .syb_table
+            .table
             .lookup_item(&self.ident)
             .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?
         {
@@ -689,23 +646,23 @@ impl GenerateIr for LValExp {
                         array_index: self.array_index.clone(),
                     };
                     let alloc = lval.generate_on(env)?;
-                    let data = env.func_data().dfg().values().get(&alloc);
+                    let data = env.ctx.func_data().dfg().values().get(&alloc);
                     let kind = match data {
                         Some(data) => data.ty().kind().clone(),
                         None =>
-                        env.program.borrow_values().get(&alloc).ok_or(AstError::UnknownError("The generated left value should have a data in the env, but it didn't.".into()))?.ty().kind().clone()
+                        env.ctx.program.borrow_values().get(&alloc).ok_or(AstError::UnknownError("The generated left value should have a data in the env, but it didn't.".into()))?.ty().kind().clone()
                     };
                     match kind {
                         TypeKind::Pointer(ty) => match ty.kind() {
                             TypeKind::Array(_, _) => {
-                                let zero = env.local_value().integer(0);
-                                let ptr = env.local_value().get_elem_ptr(alloc, zero);
-                                env.add_inst(ptr);
+                                let zero = env.ctx.local_value().integer(0);
+                                let ptr = env.ctx.local_value().get_elem_ptr(alloc, zero);
+                                env.ctx.add_inst(ptr);
                                 Ok(ptr)
                             }
                             _ => {
-                                let load = env.local_value().load(alloc);
-                                env.add_inst(load);
+                                let load = env.ctx.local_value().load(alloc);
+                                env.ctx.add_inst(load);
                                 Ok(load)
                             }
                         },
@@ -731,7 +688,7 @@ impl GenerateIr for i32 {
     type IrTarget = Value;
 
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
-        let int = env.local_value().integer(*self);
+        let int = env.ctx.local_value().integer(*self);
         Ok(int)
     }
 }

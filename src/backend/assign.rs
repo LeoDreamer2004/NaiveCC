@@ -308,11 +308,11 @@ impl RegisterRewriter {
                 let insts = res.insts_mut();
 
                 let mut used_set = HashSet::new();
-                let mut def_set = HashSet::new();
+                let mut def_ref_cnt = HashMap::new();
                 let mut active_set = analyser.outs(&label).clone();
                 for inst in local.insts() {
                     if let Some(dest) = inst.dest_reg() {
-                        def_set.insert(dest.clone());
+                        *def_ref_cnt.entry(dest.clone()).or_insert(0) += 1;
                     }
                 }
 
@@ -323,7 +323,7 @@ impl RegisterRewriter {
                         active_set.insert(reg.clone());
                     }
                     if let Some(reg) = inst.dest_reg() {
-                        def_set.remove(&reg);
+                        *def_ref_cnt.get_mut(reg).unwrap() -= 1;
                         used_set.remove(reg);
                         active_set.remove(&reg);
                     }
@@ -354,7 +354,7 @@ impl RegisterRewriter {
                     };
 
                     for reg in to_store {
-                        if def_set.contains(reg) {
+                        if *def_ref_cnt.get(reg).unwrap_or(&0) > 0 {
                             if let Some(inst) = self.save_to_stack(*reg, fs) {
                                 insts.push(inst);
                             }

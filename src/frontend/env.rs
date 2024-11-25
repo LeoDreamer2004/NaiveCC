@@ -40,15 +40,49 @@ macro_rules! add_inst {
 
 /// Context for current generating
 #[derive(Default)]
-pub struct Environment {
+pub struct Context {
     pub program: Program,
-    pub syb_table: SymbolTable,
     pub func: Option<Function>,
     pub block: Option<BasicBlock>,
-    pub loop_stack: LoopStack,
 }
 
-impl Environment {
+/// All environment data
+#[derive(Default)]
+pub struct Environment {
+    pub table: SymbolTable,
+    pub ctx: Context,
+    pub loops: LoopStack,
+}
+
+pub enum ContextBuilder<'a> {
+    Global(GlobalBuilder<'a>),
+    Local(LocalBuilder<'a>),
+}
+
+impl<'a> ContextBuilder<'a> {
+    pub fn integer(self, value: i32) -> Value {
+        match self {
+            ContextBuilder::Global(builder) => builder.integer(value),
+            ContextBuilder::Local(builder) => builder.integer(value),
+        }
+    }
+
+    pub fn aggregate(self, values: Vec<Value>) -> Value {
+        match self {
+            ContextBuilder::Global(builder) => builder.aggregate(values),
+            ContextBuilder::Local(builder) => builder.aggregate(values),
+        }
+    }
+
+    pub fn zero_init(self, ty: Type) -> Value {
+        match self {
+            ContextBuilder::Global(builder) => builder.zero_init(ty),
+            ContextBuilder::Local(builder) => builder.zero_init(ty),
+        }
+    }
+}
+
+impl Context {
     pub fn func(&mut self, func: Function) {
         self.func = Some(func);
     }
@@ -69,27 +103,11 @@ impl Environment {
         self.program.new_value()
     }
 
-    pub fn integer(&mut self, value: i32) -> Value {
+    pub fn builder(&mut self) -> ContextBuilder {
         if self.is_global() {
-            self.glb_value().integer(value)
+            ContextBuilder::Global(self.glb_value())
         } else {
-            self.local_value().integer(value)
-        }
-    }
-
-    pub fn aggregate(&mut self, values: Vec<Value>) -> Value {
-        if self.is_global() {
-            self.glb_value().aggregate(values)
-        } else {
-            self.local_value().aggregate(values)
-        }
-    }
-
-    pub fn zero_init(&mut self, ty: Type) -> Value {
-        if self.is_global() {
-            self.glb_value().zero_init(ty)
-        } else {
-            self.local_value().zero_init(ty)
+            ContextBuilder::Local(self.local_value())
         }
     }
 

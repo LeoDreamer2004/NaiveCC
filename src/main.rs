@@ -3,11 +3,12 @@
 //! The compiler is implemented in Rust, and it can generate RISC-V assembly code.
 //! Designed for Compiler Principles course (2024 autumn) in Peking University.
 //!
-//! Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024.git
+//! Handin Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024
+//! Open Source Repository: https://github.com/LeoDreamer2004/Naive-Compiler
 //! License: MIT
 
-use backend::emit_asm;
-use frontend::{build_ir, emit_ir};
+use backend::{build_asm, emit_asm, opt_asm};
+use frontend::{build_ir, emit_ir, opt_ir};
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::{read_to_string, File};
@@ -22,7 +23,7 @@ lalrpop_mod!(sysy);
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum Error {
-    InvalidArgs(String),
+    InvalidMode(String),
     InvalidFile(io::Error),
     Io(io::Error),
     Parse,
@@ -31,68 +32,61 @@ pub enum Error {
 }
 
 fn main() -> Result<(), Error> {
-    let args = parse_cmd_args().unwrap();
+    let args = parse_args().unwrap();
     let input = read_to_string(args.input).map_err(Error::InvalidFile)?;
-    let output = if let Some(path) = args.output {
-        let file = File::create(path).map_err(Error::InvalidFile)?;
-        Box::new(file) as Box<dyn io::Write>
-    } else {
-        Box::new(io::stdout())
-    };
 
+    // parse
     let ast = sysy::CompUnitParser::new()
         .parse(&input)
         .map_err(|_| Error::Parse)?;
-    let mut program = build_ir(ast).map_err(Error::Ir)?;
+
+    // frontend
+    let mut ir = build_ir(ast).map_err(Error::Ir)?;
+    ir = opt_ir(ir);
 
     match args.mode {
-        Mode::Koopa => emit_ir(&mut program, output).map_err(Error::Io)?,
+        Mode::Koopa => emit_ir(&mut ir, args.output).map_err(Error::Io)?,
         _ => {
-            let program = backend::build_asm(program).map_err(Error::Asm)?;
-            emit_asm(program, output).map_err(Error::Io)?
+            // backend
+            let mut asm = build_asm(ir).map_err(Error::Asm)?;
+            asm = opt_asm(asm);
+            emit_asm(asm, args.output).map_err(Error::Io)?
         }
     }
     Ok(())
 }
 
-fn parse_cmd_args() -> Result<CommandLineArgs, Error> {
-    let mut cmd_args = CommandLineArgs::default();
+fn parse_args() -> Result<RuntimeArgs, Error> {
     let mut args = args();
     args.next();
-    match args.next().unwrap().as_str() {
-        "-koopa" => cmd_args.mode = Mode::Koopa,
-        "-riscv" => cmd_args.mode = Mode::RiscV,
-        "-perf" => cmd_args.mode = Mode::Perf,
-        _ => return Err(Error::InvalidArgs("Invalid mode".to_string())),
-    }
-    cmd_args.input = args.next().unwrap();
-    args.next();
-    cmd_args.output = match args.next() {
-        Some(s) => {
-            // just for local test
-            if s.as_str() == "-debug" {
-                cmd_args.debug = true;
-                None
-            } else {
-                s.into()
-            }
-        }
-        _ => None,
+    let mode = match args.next().unwrap().as_str() {
+        "-koopa" => Mode::Koopa,
+        "-riscv" => Mode::RiscV,
+        "-perf" => Mode::Perf,
+        u => return Err(Error::InvalidMode(u.into())),
     };
-    Ok(cmd_args)
+    let input = args.next().unwrap();
+    args.next();
+    let output = args.next().unwrap();
+    let output: Box<dyn io::Write> = if output == "-debug" {
+        Box::new(io::stdout())
+    } else {
+        Box::new(File::create(output).map_err(Error::InvalidFile)?)
+    };
+    Ok(RuntimeArgs {
+        mode,
+        input,
+        output,
+    })
 }
 
-#[derive(Default)]
-struct CommandLineArgs {
+struct RuntimeArgs {
     mode: Mode,
     input: String,
-    output: Option<String>,
-    debug: bool,
+    output: Box<dyn io::Write>,
 }
 
-#[derive(Debug, Default)]
 enum Mode {
-    #[default]
     Koopa,
     RiscV,
     Perf,

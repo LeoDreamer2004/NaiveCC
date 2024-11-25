@@ -4,48 +4,14 @@ use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
 use super::instruction::*;
 use super::manager::InfoPack;
-use super::opt::AsmOptimizeManager;
 use super::program::{AsmGlobal, AsmLocal, AsmProgram, Section};
 use super::registers;
-use super::INT_SIZE;
+use super::{AsmError, INT_SIZE};
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
 use koopa::ir::values::*;
 use koopa::ir::{BinaryOp, FunctionData, Program, TypeKind, ValueKind};
 use std::cell::Ref;
-use std::io;
-
-///////////////////////////////////////////
-///         Global Functions            ///
-///////////////////////////////////////////
-
-/// Generate assembly code for the given IR program.
-pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
-    // generate
-    let mut asm = AsmProgram::new();
-    let mut env = Environment::new(&program);
-    program.generate_on(&mut env, &mut asm)?;
-
-    // optimization
-    let mut optman = AsmOptimizeManager::default();
-    asm = optman.run(asm);
-    Ok(asm)
-}
-
-/// Emit the assembly code to the given output.
-pub fn emit_asm(program: AsmProgram, output: impl io::Write) -> Result<(), io::Error> {
-    program.emit(output)
-}
-
-#[derive(Debug)]
-pub enum AsmError {
-    /// Trying to get the address of a value that is not found.
-    NullLocation(String),
-    /// Stack frame is invalid
-    InvalidStackFrame,
-    /// Stack overflow
-    StackOverflow,
-}
 
 ///////////////////////////////////////////
 ///         Entities Generator          ///
