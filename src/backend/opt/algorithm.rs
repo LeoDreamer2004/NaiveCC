@@ -55,12 +55,24 @@ impl LocalOptimizer for AlgorithmOptimizer {
                     }
                 }
                 (Inst::Li(r, imm), Inst::Div(rd, rs1, rs2)) => {
-                    // maybe use bits to check if imm is a power of 2
                     if imm.count_ones() == 1 {
                         csr.next();
-                        let another = check_reg!(r, imm, rs1, rs2);
+                        if !is_imm12(imm) || r != rs2 {
+                            continue;
+                        }
                         csr.remove_cur();
-                        csr.insert(Inst::Srai(rd, another, imm.trailing_zeros() as i32));
+                        csr.insert(Inst::Srai(rd, rs1, imm.trailing_zeros() as i32));
+                    }
+                }
+
+                (Inst::Li(r, imm), Inst::Rem(rd, rs1, rs2)) => {
+                    if imm.count_ones() == 1 {
+                        csr.next();
+                        if !is_imm12(imm) || r != rs2 {
+                            continue;
+                        }
+                        csr.remove_cur();
+                        csr.insert(Inst::Andi(rd, rs1, imm - 1));
                     }
                 }
                 (Inst::Li(r, imm), Inst::Or(rd, rs1, rs2)) => {

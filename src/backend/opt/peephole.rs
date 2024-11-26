@@ -19,6 +19,11 @@ impl LocalOptimizer for PeepholeOptimizer {
                     break;
                 }
             };
+            if csr.current() == &Inst::Nop {
+                csr.remove_cur();
+                csr.next();
+                continue;
+            }
             match (csr.current().clone(), next.clone()) {
                 (Inst::Sw(r1, r2, imm), Inst::Lw(r3, r4, imm2)) => {
                     if r2 == r4 && imm == imm2 {
