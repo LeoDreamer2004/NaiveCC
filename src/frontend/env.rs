@@ -95,7 +95,7 @@ impl Context {
         self.program.func_mut(self.func.unwrap())
     }
 
-    pub fn local_value(&mut self) -> LocalBuilder {
+    pub fn local_val(&mut self) -> LocalBuilder {
         self.func_data().dfg_mut().new_value()
     }
 
@@ -107,7 +107,7 @@ impl Context {
         if self.is_global() {
             ContextBuilder::Global(self.glb_value())
         } else {
-            ContextBuilder::Local(self.local_value())
+            ContextBuilder::Local(self.local_val())
         }
     }
 
@@ -159,7 +159,7 @@ impl Context {
 
             // If the current block is not ended, add a jump to the next block
             if auto_link && !current_block_ended {
-                let jump = self.local_value().jump(this);
+                let jump = self.local_val().jump(this);
                 self.add_inst(jump);
             }
             self.block(this);
@@ -168,8 +168,8 @@ impl Context {
     }
 
     pub fn alloc_and_store(&mut self, value: Value, ty: Type) -> Value {
-        let alloc = self.local_value().alloc(ty);
-        let store = self.local_value().store(value, alloc);
+        let alloc = self.local_val().alloc(ty);
+        let store = self.local_val().store(value, alloc);
         self.add_inst(alloc);
         self.add_inst(store);
         alloc

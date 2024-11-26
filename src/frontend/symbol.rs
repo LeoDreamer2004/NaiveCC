@@ -145,7 +145,7 @@ pub trait Symbol {
         }
         let mut ptr = self.get_alloc()?;
         for &index in indexes {
-            ptr = ctx.local_value().get_elem_ptr(ptr, index);
+            ptr = ctx.local_val().get_elem_ptr(ptr, index);
             ctx.add_inst(ptr);
         }
         Ok(ptr)
@@ -246,7 +246,7 @@ impl Symbol for VarSymbol {
                     let int = symbol.as_element()?.eval(&env.table)?;
                     env.ctx.glb_value().integer(int)
                 } else {
-                    symbol.as_element()?.generate_on(env)?
+                    symbol.as_element()?.generate_on(env)?.value()
                 }
             }
             None => env.ctx.builder().zero_init(ty.clone()),
@@ -255,10 +255,10 @@ impl Symbol for VarSymbol {
         let alloc = if env.ctx.is_global() {
             env.ctx.glb_value().global_alloc(init)
         } else {
-            let alloc = env.ctx.local_value().alloc(ty.clone());
+            let alloc = env.ctx.local_val().alloc(ty.clone());
             env.ctx.add_inst(alloc);
             if has_init {
-                let store = env.ctx.local_value().store(init, alloc);
+                let store = env.ctx.local_val().store(init, alloc);
                 env.ctx.add_inst(store);
             }
             alloc
@@ -357,11 +357,11 @@ impl Symbol for VarArraySymbol {
                 Some(Init::Var(init)) => {
                     let init = init
                         .parse(self.get_bias()?)?
-                        .map(|exp| exp.generate_on(env).unwrap());
+                        .map(|exp| exp.generate_on(env).unwrap().value());
                     fill_local(init, self.get_bias()?, env)
                 }
                 None => {
-                    let alloc = env.ctx.local_value().alloc(arr_ty);
+                    let alloc = env.ctx.local_val().alloc(arr_ty);
                     env.ctx.add_inst(alloc);
                     alloc
                 }
@@ -417,7 +417,7 @@ impl Symbol for ConstArraySymbol {
         let alloc = if env.ctx.is_global() {
             fill_global(init, self.get_bias()?, env)
         } else {
-            let init = init.map(|&int| env.ctx.local_value().integer(int));
+            let init = init.map(|&int| env.ctx.local_val().integer(int));
             fill_local(init, self.get_bias()?, env)
         };
         env.ctx.set_value_name(alloc, global_ident(self.ident()));
@@ -467,12 +467,12 @@ impl Symbol for FParamArraySymbol {
                 "Array dimensions mismatch".to_string(),
             ));
         }
-        let mut ptr = ctx.local_value().load(self.get_alloc()?);
+        let mut ptr = ctx.local_val().load(self.get_alloc()?);
         ctx.add_inst(ptr);
-        ptr = ctx.local_value().get_ptr(ptr, indexes[0]);
+        ptr = ctx.local_val().get_ptr(ptr, indexes[0]);
         ctx.add_inst(ptr);
         for &index in indexes[1..].iter() {
-            ptr = ctx.local_value().get_elem_ptr(ptr, index);
+            ptr = ctx.local_val().get_elem_ptr(ptr, index);
             ctx.add_inst(ptr);
         }
         Ok(ptr)
@@ -512,24 +512,24 @@ fn fill_global(init: ArrayParseResult<i32>, bias: &Vec<usize>, env: &mut Environ
 
 fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, env: &mut Environment) -> Value {
     let arr_ty = gen_array_type(Type::get_i32(), bias);
-    let alloc = env.ctx.local_value().alloc(arr_ty.clone());
+    let alloc = env.ctx.local_val().alloc(arr_ty.clone());
     env.ctx.add_inst(alloc);
     for (idx, &value) in init
-        .unfold(env.ctx.local_value().integer(0))
+        .unfold(env.ctx.local_val().integer(0))
         .iter()
         .enumerate()
     {
         let mut c_idx = idx;
-        let index = env.ctx.local_value().integer((c_idx / bias[1]) as i32);
-        let mut ptr = env.ctx.local_value().get_elem_ptr(alloc, index);
+        let index = env.ctx.local_val().integer((c_idx / bias[1]) as i32);
+        let mut ptr = env.ctx.local_val().get_elem_ptr(alloc, index);
         env.ctx.add_inst(ptr);
         for i in 2..bias.len() {
             c_idx %= bias[i - 1];
-            let index = env.ctx.local_value().integer((c_idx / bias[i]) as i32);
-            ptr = env.ctx.local_value().get_elem_ptr(ptr, index);
+            let index = env.ctx.local_val().integer((c_idx / bias[i]) as i32);
+            ptr = env.ctx.local_val().get_elem_ptr(ptr, index);
             env.ctx.add_inst(ptr);
         }
-        let store = env.ctx.local_value().store(value, ptr);
+        let store = env.ctx.local_val().store(value, ptr);
         env.ctx.add_inst(store);
     }
     alloc
