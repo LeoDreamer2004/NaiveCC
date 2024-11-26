@@ -244,16 +244,16 @@ impl Symbol for VarSymbol {
                 has_init = true;
                 if env.ctx.is_global() {
                     let int = symbol.as_element()?.eval(&env.table)?;
-                    env.ctx.glb_value().integer(int)
+                    env.ctx.glb_val().integer(int)
                 } else {
                     symbol.as_element()?.generate_on(env)?.value()
                 }
             }
-            None => env.ctx.builder().zero_init(ty.clone()),
+            None => env.ctx.val().zero_init(ty.clone()),
             _ => unreachable!(),
         };
         let alloc = if env.ctx.is_global() {
-            env.ctx.glb_value().global_alloc(init)
+            env.ctx.glb_val().global_alloc(init)
         } else {
             let alloc = env.ctx.local_val().alloc(ty.clone());
             env.ctx.add_inst(alloc);
@@ -347,8 +347,8 @@ impl Symbol for VarArraySymbol {
                     fill_global(init, bias, env)
                 }
                 None => {
-                    let value = env.ctx.glb_value().zero_init(arr_ty);
-                    env.ctx.glb_value().global_alloc(value)
+                    let value = env.ctx.glb_val().zero_init(arr_ty);
+                    env.ctx.glb_val().global_alloc(value)
                 }
                 _ => unreachable!(),
             }
@@ -494,20 +494,20 @@ fn gen_array_type(ty: Type, bias: &Vec<usize>) -> Type {
 
 fn fill_global(init: ArrayParseResult<i32>, bias: &Vec<usize>, env: &mut Environment) -> Value {
     let ints = init.unfold(0);
-    let mut values: Vec<Value> = ints.iter().map(|&x| env.ctx.builder().integer(x)).collect();
+    let mut values: Vec<Value> = ints.iter().map(|&x| env.ctx.val().integer(x)).collect();
     for i in (0..bias.len() - 1).rev() {
         let step = bias[i] / bias[i + 1];
         let num = bias[0] / bias[i];
         let mut temp = vec![];
         for j in 0..num {
             let aggr = values[j * step..(j + 1) * step].to_vec();
-            temp.push(env.ctx.builder().aggregate(aggr));
+            temp.push(env.ctx.val().aggregate(aggr));
         }
         values = temp;
     }
     // At last, there will be only one value in the values
     assert!(values.len() == 1, "Global array initialization error");
-    env.ctx.glb_value().global_alloc(values[0])
+    env.ctx.glb_val().global_alloc(values[0])
 }
 
 fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, env: &mut Environment) -> Value {

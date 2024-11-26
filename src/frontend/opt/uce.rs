@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use koopa::ir::{Function, FunctionData, Type, TypeKind, Value, ValueKind};
+use koopa::ir::{Function, FunctionData, TypeKind, Value, ValueKind};
 use koopa::opt::FunctionPass;
 
 #[derive(Default)]

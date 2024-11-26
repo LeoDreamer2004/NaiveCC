@@ -45,7 +45,7 @@ pub fn opt_ir(program: Program) -> Program {
     passman.register(Pass::Function(Box::new(ConstantsInline::default())));
     passman.register(Pass::Function(Box::new(DeadCodeElimination::default())));
     passman.register(Pass::Function(Box::new(CommonSubexpression::default())));
-    passman.register(Pass::Function((Box::new(UnreadCodeElimination::default()))));
+    passman.register(Pass::Function(Box::new(UnreadCodeElimination::default())));
     passman.run_passes(&mut program);
     program
 }

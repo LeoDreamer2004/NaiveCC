@@ -99,13 +99,13 @@ impl Context {
         self.func_data().dfg_mut().new_value()
     }
 
-    pub fn glb_value(&mut self) -> GlobalBuilder {
+    pub fn glb_val(&mut self) -> GlobalBuilder {
         self.program.new_value()
     }
 
-    pub fn builder(&mut self) -> ContextBuilder {
+    pub fn val(&mut self) -> ContextBuilder {
         if self.is_global() {
-            ContextBuilder::Global(self.glb_value())
+            ContextBuilder::Global(self.glb_val())
         } else {
             ContextBuilder::Local(self.local_val())
         }
