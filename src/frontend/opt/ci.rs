@@ -1,17 +1,27 @@
 use std::collections::HashMap;
 
 use koopa::ir::builder::ValueBuilder;
-use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
+use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
 
 #[derive(Default)]
 pub struct ConstantsInline {
-    livemap: HashMap<Value, ValueKind>,            // Constant values
-    worklist: Vec<(Value, BasicBlock, ValueKind)>, // Instructions to be processed
+    livemap: HashMap<Value, ValueKind>,      // Constant values
+    worklist: Vec<(Value, BasicBlock, i32)>, // Instructions to be processed
 }
 
 impl FunctionPass for ConstantsInline {
     fn run_on(&mut self, _: Function, func_data: &mut FunctionData) {
+        let mut changed = true;
+        while changed {
+            self.mark(func_data);
+            changed = self.sweep(func_data);
+        }
+    }
+}
+
+impl ConstantsInline {
+    fn mark(&mut self, func_data: &FunctionData) {
         for (&bb, node) in func_data.layout().bbs() {
             self.livemap.clear();
             for &inst in node.insts().keys() {
@@ -35,23 +45,55 @@ impl FunctionPass for ConstantsInline {
                     }
                     ValueKind::Load(load) => {
                         if let Some(kind) = self.livemap.get(&load.src()) {
-                            self.worklist.push((inst, bb, kind.clone()));
+                            if let ValueKind::Integer(int) = kind {
+                                self.worklist.push((inst, bb, int.value()));
+                            }
                         }
+                    }
+                    ValueKind::Binary(binary) => {
+                        let lhs = func_data.dfg().value(binary.lhs());
+                        let rhs = func_data.dfg().value(binary.rhs());
+                        if let (ValueKind::Integer(lhs), ValueKind::Integer(rhs)) =
+                            (lhs.kind(), rhs.kind())
+                        {
+                            let lhs = lhs.value();
+                            let rhs = rhs.value();
+                            let int = match binary.op() {
+                                BinaryOp::NotEq => (lhs != rhs) as i32,
+                                BinaryOp::Eq => (lhs == rhs) as i32,
+                                BinaryOp::Gt => (lhs > rhs) as i32,
+                                BinaryOp::Lt => (lhs < rhs) as i32,
+                                BinaryOp::Ge => (lhs >= rhs) as i32,
+                                BinaryOp::Le => (lhs <= rhs) as i32,
+                                BinaryOp::Add => lhs + rhs,
+                                BinaryOp::Sub => lhs - rhs,
+                                BinaryOp::Mul => lhs * rhs,
+                                BinaryOp::Div => lhs / rhs,
+                                BinaryOp::Mod => lhs % rhs,
+                                BinaryOp::And => lhs & rhs,
+                                BinaryOp::Or => lhs | rhs,
+                                BinaryOp::Xor => lhs ^ rhs,
+                                BinaryOp::Shl => lhs << rhs,
+                                BinaryOp::Shr => (lhs as u32 >> rhs) as i32,
+                                BinaryOp::Sar => lhs >> rhs,
+                            };
+
+                            self.worklist.push((inst, bb, int));
+                        };
                     }
                     _ => {}
                 }
             }
         }
+    }
 
-        while let Some((inst, bb, kind)) = self.worklist.pop() {
+    fn sweep(&mut self, func_data: &mut FunctionData) -> bool {
+        let mut res = false;
+        while let Some((inst, bb, int)) = self.worklist.pop() {
+            res = true;
             func_data.layout_mut().bb_mut(bb).insts_mut().remove(&inst);
-            let builder = func_data.dfg_mut().replace_value_with(inst);
-            match kind {
-                ValueKind::Integer(int) => {
-                    builder.integer(int.value());
-                }
-                _ => {}
-            }
+            func_data.dfg_mut().replace_value_with(inst).integer(int);
         }
+        res
     }
 }
