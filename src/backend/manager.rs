@@ -1,3 +1,5 @@
+use koopa::ir::{FunctionData, ValueKind};
+
 use super::instruction::*;
 use super::location::{AsmElement, Data, Location, Pointer, Stack, ToLocation};
 use super::program::AsmLocal;
@@ -258,9 +260,10 @@ impl AsmManager {
             }
             AsmElement::Imm(imm) => {
                 let inc = imm * (unit_size as i32);
-                if let Some(stack) = &mut pack.refer {
-                    stack.offset += inc;
-                }
+                // if let Some(stack) = &mut pack.refer {
+                //     stack.offset += inc;
+                // }
+                pack.refer = None;
                 pack.insts.push(Inst::Addi(reg, reg, inc));
             }
         }
@@ -276,17 +279,41 @@ impl AsmManager {
         }
     }
 
-    pub fn load_func_param(&mut self, index: usize, param: Pointer) -> Result<(), AsmError> {
-        let location = match Self::param_location(index) {
-            Location::Register(reg) => reg.to_loc(),
-            Location::Stack(stack) => {
-                // the params are in the stack of the caller
-                let offset = stack.offset;
-                Stack { base: FP, offset }.to_loc()
+    pub fn load_func_param(
+        &mut self,
+        func_data: &FunctionData,
+        asm: &mut AsmLocal,
+    ) -> Result<(), AsmError> {
+        let mut max_args = 0;
+        for (_, data) in func_data.dfg().values() {
+            if let ValueKind::Call(call) = data.kind() {
+                max_args = max_args.max(call.args().len());
             }
-            Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
-        };
-        self.add_loc(param, location);
+        }
+
+        for (index, &p) in func_data.params().iter().enumerate() {
+            let location = match Self::param_location(index) {
+                Location::Register(reg) => {
+                    if index >= max_args {
+                        reg.to_loc()
+                    } else {
+                        let real = self.new_reg();
+                        let inst = Inst::Mv(real, reg);
+                        asm.insts_mut().push(inst);
+                        real.to_loc()
+                    }
+                }
+                Location::Stack(stack) => {
+                    // the params are in the stack of the caller
+                    let offset = stack.offset;
+                    Stack { base: FP, offset }.to_loc()
+                }
+                Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
+            };
+            let param = func_data.dfg().value(p);
+            self.add_loc(param, location);
+        }
+
         Ok(())
     }
 

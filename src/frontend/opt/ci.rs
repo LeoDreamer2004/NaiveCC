@@ -6,7 +6,7 @@ use koopa::opt::FunctionPass;
 
 #[derive(Default)]
 pub struct ConstantsInline {
-    livemap: HashMap<Value, ValueKind>,      // Constant values
+    livemap: HashMap<Value, i32>,            // Constant values
     worklist: Vec<(Value, BasicBlock, i32)>, // Instructions to be processed
 }
 
@@ -27,16 +27,12 @@ impl ConstantsInline {
             for &inst in node.insts().keys() {
                 let data = func_data.dfg().value(inst);
                 match data.kind() {
-                    ValueKind::Call(_) => {
-                        // Conservatively remove all the values
-                        self.livemap.clear();
-                    }
                     ValueKind::Store(store) => {
                         let value = store.value();
                         let s_data = func_data.dfg().value(value);
                         match s_data.kind() {
-                            ValueKind::Integer(_) => {
-                                self.livemap.insert(store.dest(), s_data.kind().clone());
+                            ValueKind::Integer(int) => {
+                                self.livemap.insert(store.dest(), int.value());
                             }
                             _ => {
                                 self.livemap.remove(&store.dest());
@@ -44,10 +40,8 @@ impl ConstantsInline {
                         }
                     }
                     ValueKind::Load(load) => {
-                        if let Some(kind) = self.livemap.get(&load.src()) {
-                            if let ValueKind::Integer(int) = kind {
-                                self.worklist.push((inst, bb, int.value()));
-                            }
+                        if let Some(int) = self.livemap.get(&load.src()) {
+                            self.worklist.push((inst, bb, *int));
                         }
                     }
                     ValueKind::Binary(binary) => {

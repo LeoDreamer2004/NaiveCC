@@ -114,17 +114,8 @@ impl GenerateIr for Block {
                     stmt.generate_on(env)?;
                     // end block if the block item is a
                     // return/break/continue statement
-                    match stmt {
-                        Stmt::Return(_) => {
-                            break;
-                        }
-                        Stmt::Break(_) => {
-                            break;
-                        }
-                        Stmt::Continue(_) => {
-                            break;
-                        }
-                        _ => {}
+                    if matches!(stmt, Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_)) {
+                        break;
                     }
                 }
                 BlockItem::Decl(decl) => decl.generate_on(env)?,

@@ -2,6 +2,7 @@ mod algorithm;
 mod dce;
 mod helper;
 mod immfix;
+mod jump;
 mod peephole;
 
 use super::program::{AsmGlobal, AsmLocal, AsmProgram};
@@ -9,6 +10,7 @@ pub use algorithm::AlgorithmOptimizer;
 pub use dce::DeadCodeOptimizer;
 use helper::AsmHelper;
 pub use immfix::ImmFixOptimizer;
+pub use jump::JumpOptimizer;
 pub use peephole::PeepholeOptimizer;
 
 pub struct AsmOptimizeManager {

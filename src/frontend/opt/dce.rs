@@ -2,7 +2,6 @@ use koopa::ir::{Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
 use std::collections::HashSet;
 
-/// Performs dead code elimination.
 #[derive(Default)]
 pub struct DeadCodeElimination {
     worklist: Vec<Value>,

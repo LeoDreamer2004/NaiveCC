@@ -73,9 +73,25 @@ impl AsmGlobal {
         &mut self.locals
     }
 
+    pub fn find_local(&self, label: &Label) -> Option<&AsmLocal> {
+        self.locals
+            .iter()
+            .find(|l| l.label() == &Some(label.clone()))
+    }
+
+    pub fn find_local_mut(&mut self, label: &Label) -> Option<&mut AsmLocal> {
+        self.locals
+            .iter_mut()
+            .find(|l| l.label() == &Some(label.clone()))
+    }
+
     pub fn new_local(&mut self, mut local: AsmLocal) {
         local.label = local.label.map(|l| self.local_namer.get_name(l));
         self.locals.push(local);
+    }
+
+    pub fn remove_local(&mut self, label: &Label) {
+        self.locals.retain(|l| l.label() != &Some(label.clone()));
     }
 }
 

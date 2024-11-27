@@ -21,23 +21,20 @@ impl UnreadCodeElimination {
         for (&value, value_data) in data.dfg().values() {
             if let ValueKind::Alloc(_) = value_data.kind() {
                 if let TypeKind::Pointer(ty) = value_data.ty().kind() {
-                    match ty.kind() {
-                        TypeKind::Int32 => {
-                            let mut can_remove = true;
-                            let mut used = Vec::new();
-                            for u in value_data.used_by() {
-                                used.push(*u);
-                                if let ValueKind::Load(_) = data.dfg().value(*u).kind() {
-                                    can_remove = false;
-                                    break;
-                                }
-                            }
-                            if can_remove {
-                                self.to_remove.extend(used);
-                                self.to_remove.push(value);
+                    if ty.is_i32() {
+                        let mut can_remove = true;
+                        let mut used = Vec::new();
+                        for u in value_data.used_by() {
+                            used.push(*u);
+                            if let ValueKind::Load(_) = data.dfg().value(*u).kind() {
+                                can_remove = false;
+                                break;
                             }
                         }
-                        _ => {}
+                        if can_remove {
+                            self.to_remove.extend(used);
+                            self.to_remove.push(value);
+                        }
                     }
                 } else {
                     unreachable!();

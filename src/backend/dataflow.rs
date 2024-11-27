@@ -48,7 +48,8 @@ impl<'a> AsmSerializer<'a> {
 /// A directed graph, where each point is the label of a basic block.
 #[derive(Default, Debug)]
 pub struct FunctionFlowGraph {
-    edges: HashMap<Label, Vec<Label>>,
+    edges: Vec<(Label, Label)>,
+    all_labels: HashSet<Label>,
 }
 
 impl FunctionFlowGraph {
@@ -60,6 +61,12 @@ impl FunctionFlowGraph {
     /// # Returns
     /// The flow graph, otherwise None (the function is a declaration)
     pub fn build(&mut self, asm: &AsmGlobal) {
+        self.all_labels = asm
+            .locals()
+            .iter()
+            .filter_map(|l| l.label().clone())
+            .collect();
+
         for (i, local) in asm.locals().iter().enumerate() {
             if let Some(l) = local.label() {
                 let mut out = Vec::new();
@@ -90,27 +97,59 @@ impl FunctionFlowGraph {
                     } // OUT[B] = U IN[S]
                 }
 
-                self.edges.insert(l.clone(), out);
+                for o in out {
+                    self.edges.push((l.clone(), o));
+                }
             }
         }
     }
 
     /// Returns all the labels in the function
-    pub fn labels(&self) -> Vec<&Label> {
-        self.edges.keys().collect()
+    pub fn labels(&self) -> &HashSet<Label> {
+        &self.all_labels
     }
 
     /// Returns the next blocks reachable from the given block
-    pub fn to(&self, block: &Label) -> &Vec<Label> {
-        self.edges.get(block).unwrap()
+    pub fn to(&self, block: &Label) -> HashSet<&Label> {
+        let mut labels = HashSet::new();
+        for (from, to) in &self.edges {
+            if from == block {
+                labels.insert(to);
+            }
+        }
+        labels
+    }
+
+    pub fn to_duplicate(&self, block: &Label) -> Vec<&Label> {
+        let mut labels = Vec::new();
+        for (from, to) in &self.edges {
+            if from == block {
+                labels.push(to);
+            }
+        }
+        labels
     }
 
     /// Returns the previous blocks that can reach the given block
-    pub fn from(&self, block: &Label) -> Vec<&Label> {
-        self.edges
-            .iter()
-            .filter_map(|(k, v)| v.contains(block).then_some(k))
-            .collect()
+    pub fn from(&self, block: &Label) -> HashSet<&Label> {
+        let mut labels = HashSet::new();
+        for (from, to) in &self.edges {
+            if to == block {
+                labels.insert(from);
+            }
+        }
+        labels
+    }
+
+    /// Returns the previous blocks that can reach the given block
+    pub fn from_duplicate(&self, block: &Label) -> Vec<&Label> {
+        let mut labels = Vec::new();
+        for (from, to) in &self.edges {
+            if to == block {
+                labels.push(from);
+            }
+        }
+        labels
     }
 
     /// Returns true if the given block is an entry block

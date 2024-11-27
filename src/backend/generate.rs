@@ -2,10 +2,10 @@
 
 use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
-use super::instruction::*;
 use super::manager::InfoPack;
 use super::program::{AsmGlobal, AsmLocal, AsmProgram, Section};
-use super::registers;
+use super::{registers, DeadCodeOptimizer};
+use super::{instruction::*, GlobalOptimizer, JumpOptimizer};
 use super::{AsmError, INT_SIZE};
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
@@ -118,10 +118,9 @@ impl EntityAsmGenerator for FunctionData {
         env.sf.build_prologue(self, prologue);
 
         // load params first
-        for (index, &p) in self.params().iter().enumerate() {
-            let param = env.ctx.to_ptr(p);
-            env.man.load_func_param(index, param)?;
-        }
+        let mut param = AsmLocal::new(Some(".params".into()));
+        env.man.load_func_param(self, &mut param)?;
+        asm.new_local(param);
 
         for (&bb, node) in self.layout().bbs() {
             let mut local = AsmLocal::new(Some(env.l_gen.get_name(bb)));
@@ -130,6 +129,11 @@ impl EntityAsmGenerator for FunctionData {
             }
             asm.new_local(local);
         }
+
+        let mut opt = JumpOptimizer::default();
+        *asm = opt.run(asm);
+        let mut opt = DeadCodeOptimizer::default();
+        *asm = opt.run(asm);
 
         RegisterAssigner::default().assign(asm, &mut env.sf);
         env.man.end_func();
