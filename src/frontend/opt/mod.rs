@@ -5,6 +5,7 @@ mod cse;
 mod dbe;
 mod dce;
 mod uce;
+mod util;
 
 pub use bfs::BlockFlowSimplify;
 pub use cb::CopyBroadcast;

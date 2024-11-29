@@ -9,6 +9,6 @@ lalrpop = "0.22.0"
 [dependencies]
 lazy_static = "1.4.0"
 lalrpop-util = { version = "0.22.0", features = ["lexer"] }
-koopa = "0.0.7"
 key-node-list = "0.0.5"
 heuristic-graph-coloring = "0.1.0"
+koopa = { git = "https://gitlab.eduxiji.net/pku2200010825/koopamirror" }

@@ -22,6 +22,7 @@ impl FunctionPass for ConstantsInline {
 
 impl ConstantsInline {
     fn mark(&mut self, func_data: &FunctionData) {
+        // BUG: int x; y = x; x = 1 =>? y = 1
         for (&bb, node) in func_data.layout().bbs() {
             self.livemap.clear();
             for &inst in node.insts().keys() {
@@ -29,6 +30,9 @@ impl ConstantsInline {
                 match data.kind() {
                     ValueKind::Store(store) => {
                         let value = store.value();
+                        if !func_data.dfg().values().contains_key(&value) {
+                            continue;
+                        }
                         let s_data = func_data.dfg().value(value);
                         match s_data.kind() {
                             ValueKind::Integer(int) => {

@@ -1,8 +1,6 @@
 use koopa::ir::{BasicBlock, FunctionData, Value, ValueKind};
 use std::collections::{HashMap, HashSet};
 
-type Inst = Value;
-
 #[derive(Debug, Default)]
 pub struct FunctionFlowGraph {
     edges: HashMap<BasicBlock, Vec<BasicBlock>>,
@@ -50,108 +48,88 @@ impl FunctionFlowGraph {
             .filter_map(|(&k, v)| v.contains(&block).then_some(k))
             .collect()
     }
-
-    /// Returns true if the given block is an entry block
-    pub fn is_entry(&self, block: BasicBlock) -> bool {
-        self.from(block).is_empty()
-    }
-
-    /// Returns true if the given block is an exit block
-    pub fn is_exit(&self, block: BasicBlock) -> bool {
-        self.to(block).is_empty()
-    }
 }
 
 #[derive(Debug, Default)]
-pub struct ReachDefiniteParser {
+pub struct EGenKillParser {
+    u: HashSet<Value>,
     /// Generated set for each block
-    gen: HashMap<BasicBlock, HashSet<Inst>>,
+    e_gen: HashMap<BasicBlock, HashSet<Value>>,
     /// Killed set for each block
-    kill: HashMap<BasicBlock, HashSet<Inst>>,
+    e_kill: HashMap<BasicBlock, HashSet<Value>>,
 }
 
-impl ReachDefiniteParser {
-    pub fn parse(&mut self, data: &FunctionData) {
-        let mut def = HashMap::new();
-        self.gen.clear();
-        self.kill.clear();
-        for (&bb, _) in data.layout().bbs() {
-            self.gen.insert(bb, HashSet::new());
-            self.kill.insert(bb, HashSet::new());
-        }
+impl EGenKillParser {
+    pub fn parse(&mut self, func_data: &FunctionData) {
+        self.u.clear();
+        self.e_gen.clear();
+        self.e_kill.clear();
 
-        // All stores in the func: bb: [(inst, dest)]
-        let mut stores = HashMap::new();
-
-        // Scan all the stores in the function
-        for (&bb, node) in data.layout().bbs() {
+        for (&bb, node) in func_data.layout().bbs() {
+            self.e_kill.insert(bb, HashSet::new());
+            self.e_gen.insert(bb, HashSet::new());
             for (&inst, _) in node.insts() {
-                if let ValueKind::Store(store) = data.dfg().value(inst).kind() {
-                    stores
-                        .entry(bb)
-                        .or_insert_with(Vec::new)
-                        .push((inst, store.dest()));
+                if !func_data.dfg().value(inst).ty().is_unit() {
+                    self.u.insert(inst);
                 }
             }
         }
 
-        // Compute all the definition
-        for (_, pairs) in stores.clone() {
-            for (inst, dest) in pairs {
-                def.entry(dest).or_insert_with(HashSet::new).insert(inst);
-            }
-        }
-
-        if stores.is_empty() {
-            return;
-        }
-
-        // Compute the gen and kill set
-        for (bb, pairs) in stores {
-            let mut gen_set = HashSet::new();
-            let mut kill_set = HashSet::new();
-
-            let mut inst_kill = HashMap::new();
-            for (inst, dest) in pairs.clone() {
-                let mut kills = def.get(&dest).unwrap().clone();
-                assert!(kills.remove(&inst));
-                inst_kill.insert(inst, kills);
-            }
-
-            for (inst, _) in pairs.into_iter().rev() {
-                if !kill_set.contains(&inst) {
-                    gen_set.insert(inst);
+        for (&bb, node) in func_data.layout().bbs() {
+            let gens = self.e_gen.get_mut(&bb).unwrap();
+            for (&inst, _) in node.insts() {
+                if func_data
+                    .dfg()
+                    .value(inst)
+                    .kind()
+                    .value_uses()
+                    .filter(|u| !func_data.dfg().values().contains_key(u))
+                    .count()
+                    > 0
+                {
+                    continue;
                 }
-                kill_set.extend(inst_kill.get(&inst).unwrap());
-            }
 
-            self.gen.insert(bb, gen_set);
-            self.kill.insert(bb, kill_set);
+                if !func_data.dfg().value(inst).ty().is_unit() {
+                    gens.insert(inst);
+                } else if let ValueKind::Store(store) = func_data.dfg().value(inst).kind() {
+                    if !func_data.dfg().values().contains_key(&store.dest()) {
+                        continue;
+                    }
+                    let used_by = func_data.dfg().value(store.dest()).used_by();
+                    gens.retain(|s| !used_by.contains(s));
+                    self.e_kill.get_mut(&bb).unwrap().extend(used_by);
+                }
+            }
         }
     }
 
-    pub fn kill(&self, bb: BasicBlock) -> HashSet<Inst> {
-        self.kill.get(&bb).unwrap().clone()
+    pub fn e_kill(&self, bb: BasicBlock) -> &HashSet<Value> {
+        self.e_kill.get(&bb).unwrap()
     }
 
-    pub fn gen(&self, bb: BasicBlock) -> HashSet<Inst> {
-        self.gen.get(&bb).unwrap().clone()
+    pub fn e_gen(&self, bb: BasicBlock) -> &HashSet<Value> {
+        self.e_gen.get(&bb).unwrap()
+    }
+
+    pub fn u(&self) -> &HashSet<Value> {
+        &self.u
     }
 }
 
 #[derive(Debug, Default)]
-pub struct ControlFlowGraph {
-    ins: HashMap<BasicBlock, HashSet<Inst>>,
-    outs: HashMap<BasicBlock, HashSet<Inst>>,
+pub struct AvailableExpressions {
+    ins: HashMap<BasicBlock, HashSet<Value>>,
+    outs: HashMap<BasicBlock, HashSet<Value>>,
 }
 
-impl ControlFlowGraph {
-    pub fn build(&mut self, graph: &FunctionFlowGraph, parser: &ReachDefiniteParser) {
+impl AvailableExpressions {
+    pub fn build(&mut self, graph: &FunctionFlowGraph, parser: &EGenKillParser) {
         self.ins.clear();
         self.outs.clear();
         for bb in graph.bbs() {
             self.ins.insert(bb, HashSet::new());
-            self.outs.insert(bb, HashSet::new());
+            self.outs.insert(bb, parser.u().clone());
         }
 
         let mut changed = true;
@@ -159,17 +137,20 @@ impl ControlFlowGraph {
             changed = false;
 
             for bb in graph.bbs() {
-                // IN[B] = U OUT[P]
-                let mut in_set = HashSet::new();
+                // IN[B] = \cap OUT[P]
+                let mut in_set = parser.u().clone();
                 for pred in graph.from(bb) {
-                    in_set.extend(self.outs[&pred].clone());
+                    in_set = in_set.intersection(&self.outs[&pred]).cloned().collect();
+                }
+                if graph.from(bb).is_empty() {
+                    in_set = HashSet::new();
                 }
                 self.ins.insert(bb, in_set);
 
                 // OUT[B] = gen[B] | (IN[B] - kill[B])
-                let mut out_set = parser.gen(bb).clone();
+                let mut out_set = parser.e_gen(bb).clone();
                 let in_set = self.ins[&bb].clone();
-                let kill_set = parser.kill(bb);
+                let kill_set = parser.e_kill(bb);
                 out_set.extend(in_set.difference(&kill_set));
 
                 if out_set != self.outs[&bb] {
@@ -178,5 +159,13 @@ impl ControlFlowGraph {
                 }
             }
         }
+    }
+
+    pub fn ins(&self, bb: BasicBlock) -> &HashSet<Value> {
+        self.ins.get(&bb).unwrap()
+    }
+
+    pub fn outs(&self, bb: BasicBlock) -> &HashSet<Value> {
+        self.outs.get(&bb).unwrap()
     }
 }

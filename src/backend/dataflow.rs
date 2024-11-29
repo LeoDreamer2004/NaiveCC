@@ -116,20 +116,6 @@ impl GlobalFLowGraph {
     }
 }
 
-#[allow(unused_macros)]
-macro_rules! debug_insts {
-    ($map:expr, $ser:expr) => {
-        println!(stringify!($map));
-        for (label, set) in $map {
-            println!(
-                "{}: {:?}",
-                label,
-                set.iter().map(|i| $ser.inst(*i)).collect::<Vec<_>>()
-            );
-        }
-    };
-}
-
 /// Use-Def parser for [`AsmGlobal`].
 #[derive(Debug, Default)]
 pub struct UseDefParser {
