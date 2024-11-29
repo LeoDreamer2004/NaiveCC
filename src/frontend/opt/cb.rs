@@ -1,4 +1,3 @@
-use koopa::ir::builder::ValueBuilder;
 use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
 use std::collections::{HashMap, HashSet};
