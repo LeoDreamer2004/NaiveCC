@@ -63,13 +63,13 @@ impl CopyBroadcast {
                 match data.kind() {
                     ValueKind::Store(store) => {
                         let value = store.value();
-                        let s_data = func_data.dfg().value(value);
-                        if !s_data.ty().is_i32() {
-                            continue;
-                        }
-                        if !Self::can_copy(store.value(), func_data) {
-                            continue;
-                        }
+                        // let s_data = func_data.dfg().value(value);
+                        // if !s_data.ty().is_i32() {
+                        //     continue;
+                        // }
+                        // if !Self::can_copy(store.value(), func_data) {
+                            // continue;
+                        // }
                         self.livemap.insert(store.dest(), value);
                     }
                     ValueKind::Load(load) => {

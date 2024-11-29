@@ -1,3 +1,5 @@
+//! Registers in the RISC-V backend
+
 use std::fmt::{self, Debug};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

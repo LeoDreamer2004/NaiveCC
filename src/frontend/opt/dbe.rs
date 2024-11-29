@@ -16,19 +16,6 @@ impl FunctionPass for DeadBlockElimination {
             self.mark(data);
             changed = self.sweep(data);
         }
-
-        // for bb in &self.liveset {
-        //     if data.dfg().bbs().contains_key(bb) {
-        //         let mut values = Vec::new();
-        //         for value in data.dfg().bb(*bb).used_by() {
-        //             values.push(*value);
-        //         }
-        //         for value in values {
-        //             data.dfg_mut().remove_value(value);
-        //         }
-        //         data.dfg_mut().remove_bb(*bb);
-        //     }
-        // }
     }
 }
 

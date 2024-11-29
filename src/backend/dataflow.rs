@@ -5,54 +5,16 @@ use super::program::AsmGlobal;
 use super::registers::Register;
 use std::collections::{HashMap, HashSet};
 
-struct AsmSerializer<'a> {
-    asm: &'a AsmGlobal,
-    bias: HashMap<Label, usize>,
-}
-
-impl<'a> AsmSerializer<'a> {
-    fn build(asm: &'a AsmGlobal) -> Self {
-        let mut bias = HashMap::new();
-        let mut count = 0;
-        for local in asm.locals() {
-            if let Some(l) = local.label() {
-                let t = bias.insert(l.clone(), count);
-                assert!(t.is_none(), "Duplicate label");
-                count += local.insts().len();
-            }
-        }
-        Self { asm, bias }
-    }
-
-    fn index(&self, label: &Label, bias: usize) -> usize {
-        bias + self.bias.get(label).unwrap()
-    }
-
-    fn inst(&self, index: usize) -> Inst {
-        let mut count = 0;
-        for local in self.asm.locals() {
-            if let Some(l) = local.label() {
-                let len = local.insts().len();
-                if count + len > index {
-                    return local.insts()[index - count].clone();
-                }
-                count += len;
-            }
-        }
-        unreachable!()
-    }
-}
-
-/// Flow graph for a function.
+/// Flow graph for a [`AsmGlobal`].
 ///
 /// A directed graph, where each point is the label of a basic block.
 #[derive(Default, Debug)]
-pub struct FunctionFlowGraph {
+pub struct GlobalFLowGraph {
     edges: Vec<(Label, Label)>,
     all_labels: HashSet<Label>,
 }
 
-impl FunctionFlowGraph {
+impl GlobalFLowGraph {
     /// Builds the flow graph for the given function
     ///
     /// # Arguments
@@ -83,7 +45,7 @@ impl FunctionFlowGraph {
                         Inst::Ret => {
                             flag = false;
                             break;
-                        }
+                        } // OUT[B] = U IN[S]
                         _ => {}
                     }
                 }
@@ -94,7 +56,7 @@ impl FunctionFlowGraph {
                         if let Some(l) = l.label() {
                             out.push(l.clone());
                         }
-                    } // OUT[B] = U IN[S]
+                    }
                 }
 
                 for o in out {
@@ -130,6 +92,7 @@ impl FunctionFlowGraph {
         labels
     }
 
+    #[allow(dead_code)]
     /// Returns the previous blocks that can reach the given block
     pub fn from(&self, block: &Label) -> HashSet<&Label> {
         let mut labels = HashSet::new();
@@ -151,16 +114,6 @@ impl FunctionFlowGraph {
         }
         labels
     }
-
-    /// Returns true if the given block is an entry block
-    pub fn is_entry(&self, block: &Label) -> bool {
-        self.from(block).is_empty()
-    }
-
-    /// Returns true if the given block is an exit block
-    pub fn is_exit(&self, block: &Label) -> bool {
-        self.to(block).is_empty()
-    }
 }
 
 #[allow(unused_macros)]
@@ -176,134 +129,6 @@ macro_rules! debug_insts {
         }
     };
 }
-
-#[derive(Debug, Default)]
-pub struct GenKillParser {
-    /// Generated set for each block
-    gen: HashMap<Label, HashSet<usize>>,
-    /// Killed set for each block
-    kill: HashMap<Label, HashSet<usize>>,
-}
-
-impl GenKillParser {
-    pub fn parse(asm: &AsmGlobal) -> Self {
-        let ser = AsmSerializer::build(asm);
-
-        let mut def = HashMap::new();
-        let mut gen = HashMap::new();
-        let mut kill = HashMap::new();
-
-        for local in asm.locals() {
-            if let Some(l) = local.label() {
-                gen.insert(l.clone(), HashSet::new());
-                kill.insert(l.clone(), HashSet::new());
-            }
-        }
-
-        // All inst that can change register in the func: label: [(inst, dest)]
-        let mut insts = HashMap::new();
-
-        for local in asm.locals() {
-            if let Some(l) = local.label() {
-                let mut temp = Vec::new();
-                for (i, inst) in local.insts().iter().enumerate() {
-                    if let Some(reg) = inst.dest_reg() {
-                        temp.push((ser.index(l, i), reg));
-                    }
-                }
-                insts.insert(l.clone(), temp);
-            }
-        }
-
-        // Compute all the definition
-        for (_, pairs) in insts.clone() {
-            for (inst, dest) in pairs {
-                def.entry(dest).or_insert_with(HashSet::new).insert(inst);
-            }
-        }
-
-        if insts.is_empty() {
-            return Self::default();
-        }
-
-        // Compute the gen and kill set
-        for (l, pairs) in insts {
-            let mut gen_set = HashSet::new();
-            let mut kill_set = HashSet::new();
-
-            let mut inst_kill = HashMap::new();
-            for (inst, dest) in pairs.clone() {
-                let mut kills = def.get(&dest).unwrap().clone();
-                assert!(kills.remove(&inst));
-                inst_kill.insert(inst, kills);
-            }
-
-            for (inst, _) in pairs.into_iter().rev() {
-                if !kill_set.contains(&inst) {
-                    gen_set.insert(inst.clone());
-                }
-                kill_set.extend(inst_kill.get(&inst).unwrap().clone());
-            }
-
-            gen.insert(l.clone(), gen_set);
-            kill.insert(l.clone(), kill_set);
-        }
-
-        // debug_insts!(&gen, ser);
-        Self { gen, kill }
-    }
-
-    pub fn kill(&self, label: &Label) -> HashSet<usize> {
-        self.kill.get(label).unwrap().clone()
-    }
-
-    pub fn gen(&self, label: &Label) -> HashSet<usize> {
-        self.gen.get(label).unwrap().clone()
-    }
-}
-
-// pub struct ControlFlowGraph {
-//     ins: HashMap<BasicBlock, HashSet<Inst>>,
-//     outs: HashMap<BasicBlock, HashSet<Inst>>,
-// }
-
-// impl ControlFlowGraph {
-//     pub fn build(graph: &FunctionFlowGraph, parser: &ReachDefiniteParser) -> Self {
-//         let mut ins = HashMap::new();
-//         let mut outs = HashMap::new();
-//         for bb in graph.bbs() {
-//             ins.insert(bb, HashSet::new());
-//             outs.insert(bb, HashSet::new());
-//         }
-
-//         let mut changed = true;
-//         while changed {
-//             changed = false;
-
-//             for bb in graph.bbs() {
-//                 // IN[B] = U OUT[P]
-//                 let mut in_set = HashSet::new();
-//                 for pred in graph.from(bb) {
-//                     in_set.extend(outs[&pred].clone());
-//                 }
-//                 ins.insert(bb, in_set);
-
-//                 // OUT[B] = gen[B] | (IN[B] - kill[B])
-//                 let mut out_set = parser.gen(bb).clone();
-//                 let in_set = ins[&bb].clone();
-//                 let kill_set = parser.kill(bb);
-//                 out_set.extend(in_set.difference(&kill_set));
-
-//                 if out_set != outs[&bb] {
-//                     outs.insert(bb, out_set);
-//                     changed = true;
-//                 }
-//             }
-//         }
-
-//         Self { ins, outs }
-//     }
-// }
 
 /// Use-Def parser for [`AsmGlobal`].
 #[derive(Debug, Default)]
@@ -363,13 +188,13 @@ impl UseDefParser {
 /// Read flow from [`FunctionFlowGraph`] and use-def information from [`UseDefParser`].
 #[derive(Debug)]
 pub struct LiveVariableAnalyser {
-    flow: FunctionFlowGraph,
+    flow: GlobalFLowGraph,
     ins: HashMap<Label, HashSet<Register>>,
     outs: HashMap<Label, HashSet<Register>>,
 }
 
 impl LiveVariableAnalyser {
-    pub fn new(flow: FunctionFlowGraph) -> Self {
+    pub fn new(flow: GlobalFLowGraph) -> Self {
         Self {
             flow,
             ins: HashMap::new(),

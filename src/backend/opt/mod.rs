@@ -5,7 +5,7 @@ mod immfix;
 mod jump;
 mod peephole;
 
-use super::program::{AsmGlobal, AsmLocal, AsmProgram};
+use super::program::{AsmGlobal, AsmLocal};
 pub use algorithm::AlgorithmOptimizer;
 pub use dce::DeadCodeOptimizer;
 use helper::AsmHelper;
@@ -41,20 +41,16 @@ impl AsmOptimizeManager {
         self.optimizers.push(opt);
     }
 
-    pub fn run(&mut self, asm: AsmProgram) -> AsmProgram {
-        let mut asm = asm;
+    pub fn run(&mut self, asm: &mut AsmGlobal) {
         for opt in self.optimizers.iter_mut() {
-            for g in asm.globals_mut() {
-                match opt {
-                    Optimizer::Global(opt) => *g = opt.run(g),
-                    Optimizer::Local(opt) => {
-                        for l in g.locals_mut() {
-                            *l = opt.run(l);
-                        }
+            match opt {
+                Optimizer::Global(opt) => *asm = opt.run(asm),
+                Optimizer::Local(opt) => {
+                    for l in asm.locals_mut() {
+                        *l = opt.run(l);
                     }
                 }
             }
         }
-        asm
     }
 }

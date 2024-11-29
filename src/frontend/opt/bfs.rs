@@ -1,52 +1,33 @@
-use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
+use koopa::ir::{BasicBlock, Function, FunctionData, Value};
 use koopa::opt::FunctionPass;
-use std::collections::HashMap;
+
+use crate::frontend::dataflow::FunctionFlowGraph;
 
 #[derive(Default)]
-pub struct BlockFlowSimplifier {
-    pub edges: HashMap<BasicBlock, Vec<BasicBlock>>,
+pub struct BlockFlowSimplify {
+    graph: FunctionFlowGraph,
 }
 
-impl FunctionPass for BlockFlowSimplifier {
+impl FunctionPass for BlockFlowSimplify {
     fn run_on(&mut self, _: Function, data: &mut FunctionData) {
-        self.build_graph(data);
+        self.graph = FunctionFlowGraph::default();
+        self.graph.build(data);
         while let Some((from, to)) = self.scan() {
             Self::merge(from, to, data);
+            self.graph.build(data);
         }
     }
 }
 
-impl BlockFlowSimplifier {
-    fn build_graph(&mut self, data: &FunctionData) {
-        for (&bb, node) in data.layout().bbs() {
-            let mut edges = Vec::new();
-            let last = node.insts().back_key().expect("Empty basic block");
-            match data.dfg().value(*last).kind() {
-                ValueKind::Jump(jump) => {
-                    let target = jump.target();
-                    edges.push(target);
-                }
-                ValueKind::Branch(branch) => {
-                    let target = branch.true_bb();
-                    edges.push(target);
-                    let target = branch.false_bb();
-                    edges.push(target);
-                }
-                _ => {}
-            }
-            self.edges.insert(bb, edges);
-        }
-    }
-
+impl BlockFlowSimplify {
     fn scan(&mut self) -> Option<(BasicBlock, BasicBlock)> {
-        for &bb in self.edges.keys() {
-            if self.tos(bb).len() == 1 {
-                let to = self.tos(bb)[0];
+        for bb in self.graph.bbs() {
+            if self.graph.to(bb).len() == 1 {
+                let to = self.graph.to(bb)[0];
                 if to == bb {
                     continue;
                 }
-                if self.froms(to).len() == 1 {
-                    *self.edges.get_mut(&bb).unwrap() = self.edges.remove(&to).unwrap();
+                if self.graph.from(to).len() == 1 {
                     return Some((bb, to));
                 }
             }
@@ -67,16 +48,5 @@ impl BlockFlowSimplifier {
         }
         data.layout_mut().bbs_mut().remove(&to);
         data.dfg_mut().remove_bb(to);
-    }
-
-    fn tos(&self, bb: BasicBlock) -> &Vec<BasicBlock> {
-        self.edges.get(&bb).unwrap()
-    }
-
-    fn froms(&self, bb: BasicBlock) -> Vec<BasicBlock> {
-        self.edges
-            .iter()
-            .filter_map(|(k, v)| v.contains(&bb).then_some(*k))
-            .collect()
     }
 }

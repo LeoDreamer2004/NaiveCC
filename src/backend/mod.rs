@@ -16,7 +16,7 @@ use env::Environment;
 use generate::EntityAsmGenerator;
 use koopa::ir::Program;
 use opt::*;
-use program::AsmProgram;
+use program::{AsmGlobal, AsmProgram};
 use std::io;
 
 #[derive(Debug)]
@@ -37,8 +37,7 @@ pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
     Ok(asm)
 }
 
-/// Optimize the assembly code.
-pub fn opt_asm(program: AsmProgram) -> AsmProgram {
+fn opt_glb(glb: &mut AsmGlobal) {
     let mut man = AsmOptimizeManager::new();
     man.add(Optimizer::Global(Box::new(JumpOptimizer::default())));
     man.add(Optimizer::Local(Box::new(AlgorithmOptimizer::default())));
@@ -48,7 +47,16 @@ pub fn opt_asm(program: AsmProgram) -> AsmProgram {
     man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
     man.add(Optimizer::Local(Box::new(AlgorithmOptimizer::default())));
     man.add(Optimizer::Local(Box::new(ImmFixOptimizer::default())));
-    man.run(program)
+    man.run(glb);
+}
+
+/// Optimize the assembly code.
+pub fn opt_asm(program: AsmProgram) -> AsmProgram {
+    let mut asm = program;
+    for g in asm.globals_mut() {
+        opt_glb(g);
+    }
+    asm
 }
 
 /// Emit the assembly code to the given output.

@@ -2,10 +2,10 @@
 
 use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
+use super::instruction::*;
 use super::manager::InfoPack;
 use super::program::{AsmGlobal, AsmLocal, AsmProgram, Section};
-use super::{registers, DeadCodeOptimizer};
-use super::{instruction::*, GlobalOptimizer, JumpOptimizer};
+use super::{opt_glb, registers};
 use super::{AsmError, INT_SIZE};
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
@@ -130,11 +130,7 @@ impl EntityAsmGenerator for FunctionData {
             asm.new_local(local);
         }
 
-        let mut opt = JumpOptimizer::default();
-        *asm = opt.run(asm);
-        let mut opt = DeadCodeOptimizer::default();
-        *asm = opt.run(asm);
-
+        opt_glb(asm);
         RegisterAssigner::default().assign(asm, &mut env.sf);
         env.man.end_func();
         env.sf.end_fill(asm)?;

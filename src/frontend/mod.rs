@@ -2,6 +2,7 @@ pub mod ast;
 mod builtin;
 #[macro_use]
 mod env;
+mod dataflow;
 mod eval;
 mod generate;
 mod loops;
@@ -41,7 +42,7 @@ pub fn opt_ir(program: Program) -> Program {
     let mut program = program;
     let mut passman = PassManager::new();
     passman.register(Pass::Function(Box::new(DeadBlockElimination::default())));
-    passman.register(Pass::Function(Box::new(BlockFlowSimplifier::default())));
+    passman.register(Pass::Function(Box::new(BlockFlowSimplify::default())));
     passman.register(Pass::Function(Box::new(CopyBroadcast::default())));
     passman.register(Pass::Function(Box::new(ConstantsInline::default())));
     passman.register(Pass::Function(Box::new(DeadCodeElimination::default())));

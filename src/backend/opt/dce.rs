@@ -1,4 +1,4 @@
-use super::super::dataflow::{FunctionFlowGraph, LiveVariableAnalyser, UseDefParser};
+use super::super::dataflow::{GlobalFLowGraph, LiveVariableAnalyser, UseDefParser};
 use super::super::program::{AsmGlobal, AsmLocal};
 use super::super::registers::RegisterType;
 use super::GlobalOptimizer;
@@ -10,7 +10,7 @@ impl GlobalOptimizer for DeadCodeOptimizer {
     fn run(&mut self, asm: &AsmGlobal) -> AsmGlobal {
         let mut parser = UseDefParser::default();
         parser.parse(asm);
-        let mut flow = FunctionFlowGraph::default();
+        let mut flow = GlobalFLowGraph::default();
         flow.build(asm);
         let mut analyser = LiveVariableAnalyser::new(flow);
         analyser.analyse(&parser);

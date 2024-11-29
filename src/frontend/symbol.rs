@@ -1,3 +1,5 @@
+//! Symbol table on parsing.
+
 use super::ast::{ConstDef, ConstExp, ConstInitVal, Exp, FuncFParam, InitVal, VarDef};
 use super::env::{Context, Environment};
 use super::eval::Eval;

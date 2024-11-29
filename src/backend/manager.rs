@@ -1,10 +1,9 @@
-use koopa::ir::{FunctionData, ValueKind};
-
 use super::instruction::*;
 use super::location::{AsmElement, Data, Location, Pointer, Stack, ToLocation};
 use super::program::AsmLocal;
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
+use koopa::ir::{FunctionData, ValueKind};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -206,6 +205,15 @@ impl AsmManager {
 
     /// Load the data from the address of the src to the register.
     pub fn load_deref_to(&mut self, src: InfoPack, dest: &mut InfoPack) {
+        if let Some(stack) = dest.refer.clone() {
+            for (_, info) in &self.map {
+                if info.refer == dest.refer {
+                    dest.insts
+                        .push(Inst::Lw(dest.reg, stack.base, stack.offset));
+                    return;
+                }
+            }
+        }
         dest.insts.push(Inst::Lw(dest.reg, src.reg, 0));
     }
 
@@ -260,10 +268,10 @@ impl AsmManager {
             }
             AsmElement::Imm(imm) => {
                 let inc = imm * (unit_size as i32);
-                // if let Some(stack) = &mut pack.refer {
-                //     stack.offset += inc;
-                // }
-                pack.refer = None;
+                if let Some(stack) = &mut pack.refer {
+                    stack.offset += inc;
+                }
+                // pack.refer = None;
                 pack.insts.push(Inst::Addi(reg, reg, inc));
             }
         }

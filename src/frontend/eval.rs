@@ -1,3 +1,5 @@
+//! Evaluation of AST nodes
+
 use super::ast::*;
 use super::symbol::{SymbolItem, SymbolTable};
 use super::AstError;

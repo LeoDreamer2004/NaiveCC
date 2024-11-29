@@ -1,7 +1,7 @@
 use crate::backend::instruction::{Inst, Label};
 use crate::backend::program::AsmGlobal;
 
-use super::super::dataflow::FunctionFlowGraph;
+use super::super::dataflow::GlobalFLowGraph;
 use super::GlobalOptimizer;
 
 #[derive(Default)]
@@ -14,7 +14,7 @@ impl GlobalOptimizer for JumpOptimizer {
         let mut asm = asm.clone();
         let mut changed = true;
         while changed {
-            let mut graph = FunctionFlowGraph::default();
+            let mut graph = GlobalFLowGraph::default();
             graph.build(&asm);
             self.mark(&graph, &mut asm);
             changed = self.simplify(&mut asm);
@@ -24,7 +24,7 @@ impl GlobalOptimizer for JumpOptimizer {
 }
 
 impl JumpOptimizer {
-    fn mark(&mut self, graph: &FunctionFlowGraph, asm: &AsmGlobal) {
+    fn mark(&mut self, graph: &GlobalFLowGraph, asm: &AsmGlobal) {
         for local in asm.locals() {
             if let Some(label) = local.label() {
                 let froms = graph.from_duplicate(label);

@@ -1,3 +1,5 @@
+//! Backend environment.
+
 use super::frames::StackFrame;
 use super::location::{AsmElement, Pointer};
 use super::manager::{AsmManager, InfoPack};

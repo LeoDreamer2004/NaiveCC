@@ -6,7 +6,7 @@ mod dbe;
 mod dce;
 mod uce;
 
-pub use bfs::BlockFlowSimplifier;
+pub use bfs::BlockFlowSimplify;
 pub use cb::CopyBroadcast;
 pub use ci::ConstantsInline;
 pub use cse::CommonSubexpression;

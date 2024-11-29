@@ -1,4 +1,6 @@
-use super::dataflow::{FunctionFlowGraph, LiveVariableAnalyser, UseDefParser};
+//! Register assignment module.
+
+use super::dataflow::{GlobalFLowGraph, LiveVariableAnalyser, UseDefParser};
 use super::frames::StackFrame;
 use super::instruction::Inst;
 use super::location::Stack;
@@ -19,7 +21,7 @@ pub struct RegisterAssigner;
 impl RegisterAssigner {
     pub fn assign(&mut self, asm: &mut AsmGlobal, sf: &mut StackFrame) {
         loop {
-            let mut flow = FunctionFlowGraph::default();
+            let mut flow = GlobalFLowGraph::default();
             flow.build(asm);
             let mut parser = UseDefParser::default();
             parser.parse(asm);
@@ -30,7 +32,7 @@ impl RegisterAssigner {
             let mut allocator = MemoryAllocator::default();
             let ok = allocator.alloc(asm, sf, &graph);
             if ok {
-                let mut flow = FunctionFlowGraph::default();
+                let mut flow = GlobalFLowGraph::default();
                 flow.build(asm);
                 let mut parser = UseDefParser::default();
                 parser.parse(asm);

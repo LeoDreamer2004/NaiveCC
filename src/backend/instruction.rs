@@ -1,9 +1,10 @@
+//! all the instructions in the RiscV assembly language.
+
 use super::{registers::Register, Imm12, Imm32};
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
 pub type Label = String;
 
-/// **Inst**: all the instructions in the RiscV assembly language.
 #[derive(Clone, Hash, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum Inst {
@@ -251,4 +252,3 @@ impl Debug for Inst {
         write!(f, "{}", self.dump())
     }
 }
-
