@@ -2,7 +2,7 @@
 
 use super::frames::StackFrame;
 use super::location::{AsmElement, Pointer};
-use super::manager::{AsmManager, InfoPack};
+use super::manager::{InfoPack, ValueTable};
 use super::AsmError;
 use crate::utils::namer::IdGenerator;
 use koopa::ir::entities::ValueData;
@@ -58,7 +58,7 @@ impl<'a> Context<'a> {
 
 pub struct Environment<'a> {
     pub ctx: Context<'a>,
-    pub man: AsmManager,
+    pub table: ValueTable,
     pub sf: StackFrame,
     pub l_gen: IdGenerator<BasicBlock>,
 }
@@ -67,7 +67,7 @@ impl<'a> Environment<'a> {
     pub fn new(program: &'a Program) -> Self {
         Environment {
             ctx: Context::new(program),
-            man: AsmManager::default(),
+            table: ValueTable::default(),
             sf: StackFrame::default(),
             l_gen: IdGenerator::new(|e| format!("L{}", e)),
         }
@@ -75,8 +75,8 @@ impl<'a> Environment<'a> {
 
     pub fn new_pack(&mut self, value: Value) -> Result<InfoPack, AsmError> {
         let e = value.into_element(&self.ctx);
-        let mut pack = InfoPack::new(self.man.new_reg());
-        self.man.load_to(&e, &mut pack)?;
+        let mut pack = InfoPack::new(self.table.new_reg());
+        self.table.load_to(&e, &mut pack)?;
         Ok(pack)
     }
 }

@@ -15,7 +15,7 @@ struct PointerInfo {
 }
 
 #[derive(Debug, Default)]
-pub struct AsmManager {
+pub struct ValueTable {
     map: HashMap<Pointer, PointerInfo>,
     glb_map: HashMap<Pointer, PointerInfo>,
     reg_index: usize,
@@ -43,7 +43,7 @@ impl InfoPack {
     }
 }
 
-impl AsmManager {
+impl ValueTable {
     pub fn add_loc(&mut self, ptr: Pointer, loc: Location) {
         self.map.insert(
             ptr,
@@ -271,7 +271,6 @@ impl AsmManager {
                 if let Some(stack) = &mut pack.refer {
                     stack.offset += inc;
                 }
-                // pack.refer = None;
                 pack.insts.push(Inst::Addi(reg, reg, inc));
             }
         }

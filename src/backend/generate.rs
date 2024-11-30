@@ -50,7 +50,7 @@ impl EntityAsmGenerator for Program {
             }
             glb.new_local(local);
             asm.new_global(glb);
-            env.man.global_new(&*g_data, label);
+            env.table.global_new(&*g_data, label);
         }
 
         // function data
@@ -62,7 +62,7 @@ impl EntityAsmGenerator for Program {
                 let label = original_ident(&func_data.name().to_string());
                 let mut glb = AsmGlobal::new(Section::Text, label);
 
-                let label = format!(".prologue_{}", env.man.new_func_idx());
+                let label = format!(".prologue_{}", env.table.new_func_idx());
                 glb.new_local(AsmLocal::new(Some(label)));
 
                 func_data.generate_on(env, &mut glb)?;
@@ -119,7 +119,7 @@ impl EntityAsmGenerator for FunctionData {
 
         // load params first
         let mut param = AsmLocal::new(Some(".params".into()));
-        env.man.load_func_param(self, &mut param)?;
+        env.table.load_func_param(self, &mut param)?;
         asm.new_local(param);
 
         for (&bb, node) in self.layout().bbs() {
@@ -132,7 +132,7 @@ impl EntityAsmGenerator for FunctionData {
 
         opt_glb(asm);
         RegisterAssigner::default().assign(asm, &mut env.sf);
-        env.man.end_func();
+        env.table.end_func();
         env.sf.end_fill(asm)?;
         Ok(())
     }
@@ -193,10 +193,10 @@ impl ValueAsmGenerator for Alloc {
         // malloc the data
         let stack = env.sf.malloc(size)?;
         // new value "self" as a pointer
-        let reg = env.man.new_reg();
+        let reg = env.table.new_reg();
         let mut pack = InfoPack::new(reg);
-        env.man.load_ref_to(stack, &mut pack);
-        env.man.new_val_with_src(ret_data, pack, asm)
+        env.table.load_ref_to(stack, &mut pack);
+        env.table.new_val_with_src(ret_data, pack, asm)
     }
 }
 
@@ -209,7 +209,7 @@ impl ValueAsmGenerator for Store {
     ) -> Result<(), AsmError> {
         let src = env.new_pack(self.value())?;
         let dest = env.new_pack(self.dest())?;
-        env.man.save_to_deref(src, dest, asm);
+        env.table.save_to_deref(src, dest, asm);
         Ok(())
     }
 }
@@ -222,8 +222,8 @@ impl ValueAsmGenerator for Load {
         asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let mut pack = env.new_pack(self.src())?;
-        env.man.load_deref_to(pack.clone(), &mut pack);
-        env.man.new_val_with_src(ret_data, pack, asm)
+        env.table.load_deref_to(pack.clone(), &mut pack);
+        env.table.new_val_with_src(ret_data, pack, asm)
     }
 }
 
@@ -240,7 +240,7 @@ impl ValueAsmGenerator for Binary {
         let rs2 = p2.reg;
         p1.write_on(asm);
         p2.write_on(asm);
-        let rd = env.man.new_reg();
+        let rd = env.table.new_reg();
         let insts = match self.op() {
             BinaryOp::Add => vec![Inst::Add(rd, rs1, rs2)],
             BinaryOp::Sub => vec![Inst::Sub(rd, rs1, rs2)],
@@ -279,7 +279,7 @@ impl ValueAsmGenerator for Binary {
         };
         asm.insts_mut().extend(insts);
         let pack = InfoPack::new(rd);
-        env.man.new_val_with_src(ret_data, pack, asm)
+        env.table.new_val_with_src(ret_data, pack, asm)
     }
 }
 
@@ -293,7 +293,7 @@ impl ValueAsmGenerator for Return {
         if let Some(value) = self.value() {
             let e = value.into_element(&env.ctx);
             let mut pack = InfoPack::new(registers::A0);
-            env.man.load_to(&e, &mut pack)?;
+            env.table.load_to(&e, &mut pack)?;
             pack.write_on(asm);
         }
         env.sf.build_epilogue(asm)?;
@@ -343,7 +343,7 @@ impl ValueAsmGenerator for Call {
     ) -> Result<(), AsmError> {
         for (index, &p) in self.args().iter().enumerate() {
             let param = env.ctx.to_ptr(p);
-            env.man.save_func_param(index, param, asm)?;
+            env.table.save_func_param(index, param, asm)?;
         }
         let func_data = env.ctx.program.func(self.callee());
         let ident = original_ident(&func_data.name().to_string());
@@ -353,7 +353,7 @@ impl ValueAsmGenerator for Call {
             _ => unreachable!("Call callee should always be a function"),
         };
         if !is_unit {
-            let reg = env.man.new_val(ret_data);
+            let reg = env.table.new_val(ret_data);
             asm.insts_mut().push(Inst::Mv(reg, registers::A0));
         }
         Ok(())
@@ -381,8 +381,8 @@ impl ValueAsmGenerator for GetElemPtr {
         };
         let mut pack = env.new_pack(self.src())?;
         let bias = self.index().into_element(&env.ctx);
-        env.man.add_bias(&mut pack, &bias, size, asm)?;
-        env.man.new_val_with_src(ret_data, pack, asm)
+        env.table.add_bias(&mut pack, &bias, size, asm)?;
+        env.table.new_val_with_src(ret_data, pack, asm)
     }
 }
 
@@ -400,7 +400,7 @@ impl ValueAsmGenerator for GetPtr {
         };
         let mut pack = env.new_pack(self.src())?;
         let bias = &self.index().into_element(&env.ctx);
-        env.man.add_bias(&mut pack, bias, size, asm)?;
-        env.man.new_val_with_src(ret_data, pack, asm)
+        env.table.add_bias(&mut pack, bias, size, asm)?;
+        env.table.new_val_with_src(ret_data, pack, asm)
     }
 }
