@@ -8,7 +8,7 @@ mod peephole;
 use super::program::{AsmGlobal, AsmLocal};
 pub use algorithm::AlgorithmOptimizer;
 pub use dce::DeadCodeOptimizer;
-use helper::AsmHelper;
+use helper::OptHelper;
 pub use immfix::ImmFixOptimizer;
 pub use jump::JumpOptimizer;
 pub use peephole::PeepholeOptimizer;

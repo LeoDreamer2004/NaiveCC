@@ -1,19 +1,19 @@
 use super::super::instruction::Inst;
 use super::super::program::AsmLocal;
 
-pub struct AsmHelper {
+pub struct OptHelper {
     insts: Vec<Inst>,
     res: AsmLocal,
 }
 
 pub struct Cursor<'a> {
-    helper: &'a mut AsmHelper,
+    helper: &'a mut OptHelper,
     tot_len: usize,
     idx: usize,
     remove: bool,
 }
 
-impl AsmHelper {
+impl OptHelper {
     pub fn new(asm: &AsmLocal) -> Self {
         let res = AsmLocal::new_from(asm);
         let insts = asm.insts().clone();

@@ -1,14 +1,14 @@
 use super::super::program::AsmLocal;
 use super::super::registers::FREE_REG;
 use super::super::{instruction::*, is_imm12};
-use super::{AsmHelper, LocalOptimizer};
+use super::{OptHelper, LocalOptimizer};
 
 #[derive(Default)]
 pub struct ImmFixOptimizer;
 
 impl LocalOptimizer for ImmFixOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
-        let mut helper = AsmHelper::new(asm);
+        let mut helper = OptHelper::new(asm);
         let mut csr = helper.new_cursor();
         while !csr.end() {
             match csr.current().clone() {

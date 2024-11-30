@@ -8,6 +8,7 @@ pub type Label = String;
 #[derive(Clone, Hash, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum Inst {
+    /// **Nop**: a no operation instruction.
     Nop,
     /// **Placeholder(u8)**: a placeholder for the instruction.
     Placeholder(u8),

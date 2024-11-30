@@ -1,6 +1,6 @@
 //! Registers in the RISC-V backend
 
-use std::fmt::{self, Debug};
+use std::fmt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
@@ -20,7 +20,7 @@ impl Default for Register {
     }
 }
 
-impl Debug for Register {
+impl fmt::Debug for Register {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
     }

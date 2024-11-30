@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{AsmHelper, LocalOptimizer};
+use super::{OptHelper, LocalOptimizer};
 use crate::backend::instruction::*;
 use crate::backend::program::AsmLocal;
 
@@ -9,7 +9,7 @@ pub struct PeepholeOptimizer;
 
 impl LocalOptimizer for PeepholeOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
-        let mut helper = AsmHelper::new(asm);
+        let mut helper = OptHelper::new(asm);
         let mut csr = helper.new_cursor();
         while !csr.end() {
             let next = match csr.peek(1) {
@@ -61,7 +61,7 @@ impl LocalOptimizer for PeepholeOptimizer {
 
         // remove the extra immediate loading
         let asm = helper.result();
-        let mut helper = AsmHelper::new(&asm);
+        let mut helper = OptHelper::new(&asm);
         let mut map = HashMap::new();
         let mut csr = helper.new_cursor();
         while !csr.end() {

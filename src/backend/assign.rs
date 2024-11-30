@@ -15,7 +15,7 @@ pub struct RegisterAssigner;
 
 /// Register dispatcher is used to dispatch registers for the values.
 ///
-/// In [`AsmManager`], most of the values are stored in [`FakeRegister`] (which means we assumes
+/// In [`ValueTable`], most of the values are stored in [`FakeRegister`] (which means we assumes
 /// that there are infinite registers). They are called like "reg_1" etc.
 /// This dispatcher is used to dispatch the registers for the values.
 impl RegisterAssigner {
@@ -105,8 +105,8 @@ impl RegisterInterferenceGraph {
         let mut max_idx = 0;
 
         // Scan all the fake registers and build the interference graph
-        for (_, insts) in asm.labeled_locals() {
-            for inst in insts {
+        for (_, local) in asm.labeled_locals() {
+            for inst in local.insts() {
                 for reg in inst.regs() {
                     if let Register::Fake(r) = reg {
                         let idx = Self::to_idx(r);
@@ -122,9 +122,9 @@ impl RegisterInterferenceGraph {
     }
 
     fn build_edges(&mut self, asm: &AsmGlobal, lva: &LiveVariableAnalyser) {
-        for (l, insts) in asm.labeled_locals() {
-            let mut active_set = lva.outs(l).clone();
-            for inst in insts.iter().rev() {
+        for (l, local) in asm.labeled_locals() {
+            let mut active_set = lva.outs(&l).clone();
+            for inst in local.insts().iter().rev() {
                 if let Some(reg) = inst.dest_reg() {
                     active_set.remove(&reg);
                     for r in &active_set {
@@ -136,7 +136,7 @@ impl RegisterInterferenceGraph {
                 }
                 self.add_edges_in_set(&active_set);
             }
-            assert_eq!(&active_set, lva.ins(l));
+            assert_eq!(&active_set, lva.ins(&l));
         }
     }
 
@@ -303,77 +303,76 @@ impl RegisterRewriter {
     /// Note: May add some instructions to save and load the registers to the stack
     /// when going through blocks / meeting function calls.
     fn write(&mut self, asm: &mut AsmGlobal, sf: &mut StackFrame, analyser: LiveVariableAnalyser) {
-        for local in asm.locals_mut().iter_mut().rev() {
-            if let Some(label) = local.label().clone() {
-                let mut res = AsmLocal::new_from(local);
-                let insts = res.insts_mut();
+        for (label, local) in asm.labeled_locals_mut() {
+            let mut res = AsmLocal::new_from(local);
+            let insts = res.insts_mut();
 
-                let mut used_set = HashSet::new();
-                let mut def_ref_cnt = HashMap::new();
-                let mut active_set = analyser.outs(&label).clone();
-                for inst in local.insts() {
-                    if let Some(dest) = inst.dest_reg() {
-                        *def_ref_cnt.entry(dest.clone()).or_insert(0) += 1;
-                    }
+            let mut used_set = HashSet::new();
+            let mut def_ref_cnt = HashMap::new();
+            let mut active_set = analyser.outs(&label).clone();
+            for inst in local.insts() {
+                if let Some(dest) = inst.dest_reg() {
+                    *def_ref_cnt.entry(dest.clone()).or_insert(0) += 1;
+                }
+            }
+
+            // Do everying in reverse order!
+            for inst in local.insts_mut().iter_mut().rev() {
+                // Update the active set
+                for reg in inst.regs() {
+                    active_set.insert(reg.clone());
+                }
+                if let Some(reg) = inst.dest_reg() {
+                    *def_ref_cnt.get_mut(reg).unwrap() -= 1;
+                    used_set.remove(reg);
+                    active_set.remove(&reg);
+                }
+                for reg in inst.src_regs() {
+                    used_set.insert(reg.clone());
                 }
 
-                // Do everying in reverse order!
-                for inst in local.insts_mut().iter_mut().rev() {
-                    // Update the active set
-                    for reg in inst.regs() {
-                        active_set.insert(reg.clone());
-                    }
-                    if let Some(reg) = inst.dest_reg() {
-                        *def_ref_cnt.get_mut(reg).unwrap() -= 1;
-                        used_set.remove(reg);
-                        active_set.remove(&reg);
-                    }
-                    for reg in inst.src_regs() {
-                        used_set.insert(reg.clone());
-                    }
-
-                    // Recover the registers when meet a call
-                    if let Inst::Call(_) = inst {
-                        for reg in &active_set {
-                            if let Some(inst) = self.load_from_stack(reg.clone(), sf) {
-                                insts.push(inst);
-                            }
-                        }
-                    }
-
-                    // Rewrite the registers
-                    insts.push(self.update_inst(inst));
-
-                    // Save the registers before the jump / call
-                    let empty = &HashSet::new();
-                    let to_store = match inst {
-                        Inst::J(l) => analyser.ins(l),
-                        Inst::Beqz(_, l) => analyser.ins(l),
-                        Inst::Bnez(_, l) => analyser.ins(l),
-                        Inst::Call(_) => &active_set,
-                        _ => empty,
-                    };
-
-                    for reg in to_store {
-                        if *def_ref_cnt.get(reg).unwrap_or(&0) > 0 {
-                            if let Some(inst) = self.save_to_stack(*reg, sf) {
-                                insts.push(inst);
-                            }
-                        }
-                    }
-                }
-
-                if analyser.flow().from_duplicate(&label).len() != 1 {
-                    for reg in used_set {
-                        if let Some(inst) = self.load_from_stack(reg, sf) {
+                // Recover the registers when meet a call
+                if let Inst::Call(_) = inst {
+                    for reg in &active_set {
+                        if let Some(inst) = self.load_from_stack(reg.clone(), sf) {
                             insts.push(inst);
                         }
                     }
                 }
 
-                insts.reverse();
-                *local = res;
+                // Rewrite the registers
+                insts.push(self.update_inst(inst));
+
+                // Save the registers before the jump / call
+                let empty = &HashSet::new();
+                let to_store = match inst {
+                    Inst::J(l) => analyser.ins(l),
+                    Inst::Beqz(_, l) => analyser.ins(l),
+                    Inst::Bnez(_, l) => analyser.ins(l),
+                    Inst::Call(_) => &active_set,
+                    _ => empty,
+                };
+
+                for reg in to_store {
+                    if *def_ref_cnt.get(reg).unwrap_or(&0) > 0 {
+                        if let Some(inst) = self.save_to_stack(*reg, sf) {
+                            insts.push(inst);
+                        }
+                    }
+                }
             }
+
+            // When the block only comes from a single block, we can directly use the registers
+            if analyser.flow().from_duplicate(&label).len() != 1 {
+                for reg in used_set {
+                    if let Some(inst) = self.load_from_stack(reg, sf) {
+                        insts.push(inst);
+                    }
+                }
+            }
+
+            insts.reverse();
+            *local = res;
         }
     }
 
@@ -393,7 +392,6 @@ impl RegisterRewriter {
             Register::Fake(fake) => self.graph.real_reg(fake),
             _ => return None,
         };
-
         let loc = self.get_alloc(&reg, sf);
         Some(Inst::Lw(real, loc.base, loc.offset))
     }

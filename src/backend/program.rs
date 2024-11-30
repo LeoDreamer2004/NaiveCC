@@ -1,5 +1,6 @@
 use super::instruction::{Inst, Label};
 use crate::utils::namer::UniqueNameGenerator;
+use std::collections::HashSet;
 use std::io;
 
 pub struct AsmProgram {
@@ -62,15 +63,29 @@ impl AsmGlobal {
         &self.locals
     }
 
-    pub fn labeled_locals(&self) -> Vec<(&Label, &Vec<Inst>)> {
+    pub fn locals_mut(&mut self) -> &mut Vec<AsmLocal> {
+        &mut self.locals
+    }
+
+    pub fn labeled_locals(&self) -> Vec<(Label, &AsmLocal)> {
         self.locals
             .iter()
-            .filter_map(|l| l.label().as_ref().map(|label| (label, l.insts())))
+            .filter_map(|l| l.label().as_ref().map(|label| (label.clone(), l)))
             .collect()
     }
 
-    pub fn locals_mut(&mut self) -> &mut Vec<AsmLocal> {
-        &mut self.locals
+    pub fn labeled_locals_mut(&mut self) -> Vec<(Label, &mut AsmLocal)> {
+        self.locals
+            .iter_mut()
+            .filter_map(|l| l.label().clone().as_ref().map(|label| (label.clone(), l)))
+            .collect()
+    }
+
+    pub fn local_labels(&self) -> HashSet<Label> {
+        self.locals()
+            .iter()
+            .filter_map(|l| l.label().clone())
+            .collect()
     }
 
     pub fn find_local(&self, label: &Label) -> Option<&AsmLocal> {

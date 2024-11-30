@@ -25,14 +25,12 @@ impl GlobalOptimizer for JumpOptimizer {
 
 impl JumpOptimizer {
     fn mark(&mut self, graph: &GlobalFLowGraph, asm: &AsmGlobal) {
-        for local in asm.locals() {
-            if let Some(label) = local.label() {
-                let froms = graph.from_duplicate(label);
-                if froms.len() == 1 {
-                    let from = froms[0].clone();
-                    if graph.to_duplicate(&from).len() == 1 {
-                        self.work = (from, label.clone());
-                    }
+        for (label, _) in asm.labeled_locals() {
+            let froms = graph.from_duplicate(&label);
+            if froms.len() == 1 {
+                let from = froms[0].clone();
+                if graph.to_duplicate(&from).len() == 1 {
+                    self.work = (from, label.clone());
                 }
             }
         }

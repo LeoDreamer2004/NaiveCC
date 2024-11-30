@@ -1,7 +1,7 @@
 use super::super::instruction::*;
 use super::super::is_imm12;
 use super::super::program::AsmLocal;
-use super::{AsmHelper, LocalOptimizer};
+use super::{OptHelper, LocalOptimizer};
 
 #[derive(Default)]
 pub struct AlgorithmOptimizer;
@@ -23,7 +23,7 @@ macro_rules! check_reg {
 
 impl LocalOptimizer for AlgorithmOptimizer {
     fn run(&mut self, asm: &AsmLocal) -> AsmLocal {
-        let mut helper = AsmHelper::new(asm);
+        let mut helper = OptHelper::new(asm);
         let mut csr = helper.new_cursor();
 
         while !csr.end() {
@@ -117,7 +117,7 @@ impl LocalOptimizer for AlgorithmOptimizer {
         }
 
         let asm = helper.result();
-        let mut helper = AsmHelper::new(&asm);
+        let mut helper = OptHelper::new(&asm);
         let mut csr = helper.new_cursor();
         while !csr.end() {
             match csr.current() {

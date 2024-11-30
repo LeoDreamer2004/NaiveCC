@@ -23,45 +23,39 @@ impl GlobalFLowGraph {
     /// # Returns
     /// The flow graph, otherwise None (the function is a declaration)
     pub fn build(&mut self, asm: &AsmGlobal) {
-        self.all_labels = asm
-            .locals()
-            .iter()
-            .filter_map(|l| l.label().clone())
-            .collect();
+        self.all_labels = asm.local_labels();
 
-        for (i, local) in asm.locals().iter().enumerate() {
-            if let Some(l) = local.label() {
-                let mut out = Vec::new();
-                let mut flag = true;
-                for inst in local.insts() {
-                    match inst {
-                        Inst::Beqz(_, t) => out.push(t.clone()),
-                        Inst::Bnez(_, t) => out.push(t.clone()),
-                        Inst::J(t) => {
-                            out.push(t.clone());
-                            flag = false;
-                            break;
-                        }
-                        Inst::Ret => {
-                            flag = false;
-                            break;
-                        } // OUT[B] = U IN[S]
-                        _ => {}
+        for (i, (l, local)) in asm.labeled_locals().into_iter().enumerate() {
+            let mut out = Vec::new();
+            let mut flag = true;
+            for inst in local.insts() {
+                match inst {
+                    Inst::Beqz(_, t) => out.push(t.clone()),
+                    Inst::Bnez(_, t) => out.push(t.clone()),
+                    Inst::J(t) => {
+                        out.push(t.clone());
+                        flag = false;
+                        break;
+                    }
+                    Inst::Ret => {
+                        flag = false;
+                        break;
+                    } // OUT[B] = U IN[S]
+                    _ => {}
+                }
+            }
+
+            // Go to the next block
+            if flag {
+                if let Some(l) = asm.locals().get(i + 1) {
+                    if let Some(l) = l.label() {
+                        out.push(l.clone());
                     }
                 }
+            }
 
-                // Go to the next block
-                if flag {
-                    if let Some(l) = asm.locals().get(i + 1) {
-                        if let Some(l) = l.label() {
-                            out.push(l.clone());
-                        }
-                    }
-                }
-
-                for o in out {
-                    self.edges.push((l.clone(), o));
-                }
+            for o in out {
+                self.edges.push((l.clone(), o));
             }
         }
     }
