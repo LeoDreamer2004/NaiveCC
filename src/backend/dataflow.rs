@@ -24,6 +24,7 @@ impl GlobalFLowGraph {
     /// The flow graph, otherwise None (the function is a declaration)
     pub fn build(&mut self, asm: &AsmGlobal) {
         self.all_labels = asm.local_labels();
+        self.edges.clear();
 
         for (i, (l, local)) in asm.labeled_locals().into_iter().enumerate() {
             let mut out = Vec::new();
@@ -40,7 +41,7 @@ impl GlobalFLowGraph {
                     Inst::Ret => {
                         flag = false;
                         break;
-                    } // OUT[B] = U IN[S]
+                    }
                     _ => {}
                 }
             }

@@ -121,9 +121,9 @@ impl RegisterInterferenceGraph {
         self.graph = VecVecGraph::new(max_idx + 1);
     }
 
-    fn build_edges(&mut self, asm: &AsmGlobal, lva: &LiveVariableAnalyser) {
+    fn build_edges(&mut self, asm: &AsmGlobal, analyser: &LiveVariableAnalyser) {
         for (l, local) in asm.labeled_locals() {
-            let mut active_set = lva.outs(&l).clone();
+            let mut active_set = analyser.outs(&l).clone();
             for inst in local.insts().iter().rev() {
                 if let Some(reg) = inst.dest_reg() {
                     active_set.remove(&reg);
@@ -136,7 +136,7 @@ impl RegisterInterferenceGraph {
                 }
                 self.add_edges_in_set(&active_set);
             }
-            assert_eq!(&active_set, lva.ins(&l));
+            assert_eq!(&active_set, analyser.ins(&l));
         }
     }
 
