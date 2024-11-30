@@ -363,9 +363,11 @@ impl RegisterRewriter {
                     }
                 }
 
-                for reg in used_set {
-                    if let Some(inst) = self.load_from_stack(reg, sf) {
-                        insts.push(inst);
+                if analyser.flow().from_duplicate(&label).len() != 1 {
+                    for reg in used_set {
+                        if let Some(inst) = self.load_from_stack(reg, sf) {
+                            insts.push(inst);
+                        }
                     }
                 }
 

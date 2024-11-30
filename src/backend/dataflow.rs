@@ -227,6 +227,10 @@ impl LiveVariableAnalyser {
         }
     }
 
+    pub fn flow(&self) -> &GlobalFLowGraph {
+        &self.flow
+    }
+
     pub fn ins(&self, label: &Label) -> &HashSet<Register> {
         self.ins.get(label).unwrap()
     }
