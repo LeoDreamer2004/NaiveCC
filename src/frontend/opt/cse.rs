@@ -31,21 +31,10 @@ impl CommonSubexpression {
         analyser.build(&self.graph, &parser);
 
         for (&bb, node) in func_data.layout().bbs() {
-            let mut available = analyser.ins(bb).clone();
+            let mut availables = analyser.ins(bb).clone();
             for &inst in node.insts().keys() {
                 let data = func_data.dfg().value(inst);
-
-                if data
-                    .kind()
-                    .value_uses()
-                    .filter(|u| !func_data.dfg().values().contains_key(u))
-                    .count()
-                    > 0
-                {
-                    continue;
-                }
-
-                for a in available.clone() {
+                for a in availables.clone() {
                     if a == inst {
                         continue;
                     }
@@ -53,17 +42,9 @@ impl CommonSubexpression {
                         return Some((bb, inst, a));
                     }
                 }
-                if !data.ty().is_unit() {
-                    available.insert(inst);
-                } else if let ValueKind::Store(store) = data.kind() {
-                    if !func_data.dfg().values().contains_key(&store.dest()) {
-                        continue;
-                    }
-                    let used_by = func_data.dfg().value(store.dest()).used_by();
-                    available.retain(|s| !used_by.contains(s));
-                }
+                EGenKillParser::update(inst, &mut availables, func_data);
             }
-            assert_eq!(&available, analyser.outs(bb));
+            assert_eq!(&availables, analyser.outs(bb));
         }
         None
     }

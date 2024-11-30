@@ -51,6 +51,125 @@ impl FunctionFlowGraph {
 }
 
 #[derive(Debug, Default)]
+pub struct GenKillParser {
+    /// Generated set for each block
+    gen: HashMap<BasicBlock, HashSet<Value>>,
+    /// Killed set for each block
+    kill: HashMap<BasicBlock, HashSet<Value>>,
+}
+
+impl GenKillParser {
+    pub fn parse(&mut self, data: &FunctionData) {
+        let mut def = HashMap::new();
+        self.gen.clear();
+        self.kill.clear();
+        for (&bb, _) in data.layout().bbs() {
+            self.gen.insert(bb, HashSet::new());
+            self.kill.insert(bb, HashSet::new());
+        }
+
+        // All stores in the func: bb: [(inst, dest)]
+        let mut stores = HashMap::new();
+
+        // Scan all the stores in the function
+        for (&bb, node) in data.layout().bbs() {
+            for (&inst, _) in node.insts() {
+                if let ValueKind::Store(store) = data.dfg().value(inst).kind() {
+                    stores
+                        .entry(bb)
+                        .or_insert_with(Vec::new)
+                        .push((inst, store.dest()));
+                }
+            }
+        }
+
+        // Compute all the definition
+        for (_, pairs) in stores.clone() {
+            for (inst, dest) in pairs {
+                def.entry(dest).or_insert_with(HashSet::new).insert(inst);
+            }
+        }
+
+        // Compute the gen and kill set
+        for (bb, pairs) in stores {
+            let mut gen_set = HashSet::new();
+            let mut kill_set = HashSet::new();
+
+            let mut inst_kill = HashMap::new();
+            for (inst, dest) in pairs.clone() {
+                let mut kills = def.get(&dest).unwrap().clone();
+                assert!(kills.remove(&inst));
+                inst_kill.insert(inst, kills);
+            }
+
+            for (inst, _) in pairs.into_iter().rev() {
+                if !kill_set.contains(&inst) {
+                    gen_set.insert(inst);
+                }
+                kill_set.extend(inst_kill.get(&inst).unwrap());
+            }
+
+            self.gen.insert(bb, gen_set);
+            self.kill.insert(bb, kill_set);
+        }
+    }
+
+    pub fn kill(&self, bb: BasicBlock) -> HashSet<Value> {
+        self.kill.get(&bb).unwrap().clone()
+    }
+
+    pub fn gen(&self, bb: BasicBlock) -> HashSet<Value> {
+        self.gen.get(&bb).unwrap().clone()
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ReachDefiniteAnalyser {
+    ins: HashMap<BasicBlock, HashSet<Value>>,
+    outs: HashMap<BasicBlock, HashSet<Value>>,
+}
+
+impl ReachDefiniteAnalyser {
+    pub fn build(&mut self, graph: &FunctionFlowGraph, parser: &GenKillParser) {
+        self.ins.clear();
+        self.outs.clear();
+        for bb in graph.bbs() {
+            self.ins.insert(bb, HashSet::new());
+            self.outs.insert(bb, HashSet::new());
+        }
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+
+            for bb in graph.bbs() {
+                // IN[B] = U OUT[P]
+                let mut in_set = HashSet::new();
+                for pred in graph.from(bb) {
+                    in_set.extend(self.outs[&pred].clone());
+                }
+                self.ins.insert(bb, in_set);
+
+                // OUT[B] = gen[B] | (IN[B] - kill[B])
+                let mut out_set = parser.gen(bb).clone();
+                let in_set = self.ins[&bb].clone();
+                let kill_set = parser.kill(bb);
+                out_set.extend(in_set.difference(&kill_set));
+
+                if out_set != self.outs[&bb] {
+                    self.outs.insert(bb, out_set);
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    pub fn ins(&self, bb: BasicBlock) -> &HashSet<Value> {
+        self.ins.get(&bb).unwrap()
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct EGenKillParser {
     u: HashSet<Value>,
     /// Generated set for each block
@@ -60,6 +179,30 @@ pub struct EGenKillParser {
 }
 
 impl EGenKillParser {
+    pub fn update(inst: Value, availables: &mut HashSet<Value>, func_data: &FunctionData) {
+        if func_data
+            .dfg()
+            .value(inst)
+            .kind()
+            .value_uses()
+            .filter(|u| !func_data.dfg().values().contains_key(u))
+            .count()
+            > 0
+        {
+            return;
+        }
+
+        if !func_data.dfg().value(inst).ty().is_unit() {
+            availables.insert(inst);
+        } else if let ValueKind::Store(store) = func_data.dfg().value(inst).kind() {
+            if !func_data.dfg().values().contains_key(&store.dest()) {
+                return;
+            }
+            let used_by = func_data.dfg().value(store.dest()).used_by();
+            availables.retain(|s| !used_by.contains(s));
+        }
+    }
+
     pub fn parse(&mut self, func_data: &FunctionData) {
         self.u.clear();
         self.e_gen.clear();
@@ -78,27 +221,12 @@ impl EGenKillParser {
         for (&bb, node) in func_data.layout().bbs() {
             let gens = self.e_gen.get_mut(&bb).unwrap();
             for (&inst, _) in node.insts() {
-                if func_data
-                    .dfg()
-                    .value(inst)
-                    .kind()
-                    .value_uses()
-                    .filter(|u| !func_data.dfg().values().contains_key(u))
-                    .count()
-                    > 0
-                {
-                    continue;
-                }
-
-                if !func_data.dfg().value(inst).ty().is_unit() {
-                    gens.insert(inst);
-                } else if let ValueKind::Store(store) = func_data.dfg().value(inst).kind() {
-                    if !func_data.dfg().values().contains_key(&store.dest()) {
-                        continue;
+                Self::update(inst, gens, func_data);
+                if let ValueKind::Store(store) = func_data.dfg().value(inst).kind() {
+                    if func_data.dfg().values().contains_key(&store.dest()) {
+                        let used_by = func_data.dfg().value(store.dest()).used_by();
+                        self.e_kill.get_mut(&bb).unwrap().extend(used_by);
                     }
-                    let used_by = func_data.dfg().value(store.dest()).used_by();
-                    gens.retain(|s| !used_by.contains(s));
-                    self.e_kill.get_mut(&bb).unwrap().extend(used_by);
                 }
             }
         }

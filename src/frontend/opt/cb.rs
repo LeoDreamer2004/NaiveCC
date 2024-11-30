@@ -2,20 +2,22 @@ use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
 use std::collections::{HashMap, HashSet};
 
+use crate::frontend::dataflow::{FunctionFlowGraph, GenKillParser, ReachDefiniteAnalyser};
+
 use super::util::ValueReplace;
 
 #[derive(Default)]
 pub struct CopyBroadcast {
-    glb_broadcast: HashSet<Value>,  // Values that can be broadcasted
-    livemap: HashMap<Value, Value>, // Copy dest -> copy src
+    graph: FunctionFlowGraph,
     worklist: Vec<(Value, BasicBlock, Value)>, // Instructions to be processed
 }
 
 impl FunctionPass for CopyBroadcast {
     fn run_on(&mut self, _: Function, func_data: &mut FunctionData) {
+        self.graph.build(func_data);
         let mut changed = true;
         while changed {
-            self.parse(func_data);
+            // self.parse(func_data);
             self.mark(func_data);
             changed = self.sweep(func_data);
         }
@@ -23,34 +25,38 @@ impl FunctionPass for CopyBroadcast {
 }
 
 impl CopyBroadcast {
-    fn parse(&mut self, func_data: &FunctionData) {
-        let mut wrote_in = HashMap::new();
-        for (&bb, node) in func_data.layout().bbs() {
-            for &inst in node.insts().keys() {
-                let data = func_data.dfg().value(inst);
-                if let ValueKind::Store(store) = data.kind() {
-                    wrote_in.entry(store.dest()).or_insert(Vec::new()).push(bb);
-                }
-            }
-        }
-
-        // If the value is only written in one block, then it can be globally broadcasted
-        self.glb_broadcast.clear();
-        for (value, bbs) in wrote_in {
-            if bbs.len() == 1 {
-                self.glb_broadcast.insert(value);
-            }
-        }
-    }
-
     fn mark(&mut self, func_data: &FunctionData) {
         let mut reserved_value = HashSet::new();
+        let mut parser = GenKillParser::default();
+        parser.parse(func_data);
+        let mut flow = ReachDefiniteAnalyser::default();
+        flow.build(&self.graph, &parser);
+
         for (&bb, node) in func_data.layout().bbs() {
-            for v in self.livemap.clone().keys() {
-                if !self.glb_broadcast.contains(v) {
-                    self.livemap.remove(v);
+            // defmap: copy dest -> copy srcs
+            let mut defmap = HashMap::new();
+
+            let ins = flow.ins(bb);
+            for i in ins {
+                match func_data.dfg().value(*i).kind() {
+                    ValueKind::Store(store) => {
+                        defmap
+                            .entry(store.dest())
+                            .or_insert(HashSet::new())
+                            .insert(store.value());
+                    }
+                    _ => unreachable!(),
                 }
             }
+
+            // livemap: copy dest -> copy src (if only one)
+            let mut livemap = HashMap::new();
+            for (dest, srcs) in defmap {
+                if srcs.len() == 1 {
+                    livemap.insert(dest, *srcs.iter().next().unwrap());
+                }
+            }
+
             for &inst in node.insts().keys() {
                 let data = func_data.dfg().value(inst);
                 match data.kind() {
@@ -61,11 +67,11 @@ impl CopyBroadcast {
                         //     continue;
                         // }
                         if func_data.dfg().values().contains_key(&store.dest()) {
-                            self.livemap.insert(store.dest(), value);
+                            livemap.insert(store.dest(), value);
                         }
                     }
                     ValueKind::Load(load) => {
-                        if let Some(value) = self.livemap.get(&load.src()) {
+                        if let Some(value) = livemap.get(&load.src()) {
                             if func_data.dfg().value(inst).used_by().contains(&value) {
                                 // Used circularly, so we can't broadcast it
                                 reserved_value.insert(*value);
