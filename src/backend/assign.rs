@@ -3,7 +3,7 @@
 use super::dataflow::{GlobalFLowGraph, LiveVariableAnalyser, UseDefParser};
 use super::frames::StackFrame;
 use super::instruction::Inst;
-use super::location::Stack;
+use super::address::Stack;
 use super::program::{AsmGlobal, AsmLocal};
 use super::registers::{FakeRegister, Register, RegisterType};
 use super::INT_SIZE;

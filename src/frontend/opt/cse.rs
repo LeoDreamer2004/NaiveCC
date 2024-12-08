@@ -1,9 +1,7 @@
+use super::super::dataflow::{AvailableExpressions, EGenKillParser, FunctionFlowGraph};
+use super::util::ValueReplace;
 use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
-
-use crate::frontend::dataflow::{AvailableExpressions, EGenKillParser, FunctionFlowGraph};
-
-use super::util::ValueReplace;
 
 #[derive(Default)]
 pub struct CommonSubexpression {

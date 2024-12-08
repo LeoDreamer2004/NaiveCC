@@ -1,8 +1,7 @@
+use super::super::instruction::*;
+use super::super::program::AsmLocal;
+use super::{LocalOptimizer, OptHelper};
 use std::collections::HashMap;
-
-use super::{OptHelper, LocalOptimizer};
-use crate::backend::instruction::*;
-use crate::backend::program::AsmLocal;
 
 #[derive(Default)]
 pub struct PeepholeOptimizer;

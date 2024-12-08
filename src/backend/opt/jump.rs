@@ -1,7 +1,6 @@
-use crate::backend::instruction::{Inst, Label};
-use crate::backend::program::AsmGlobal;
-
 use super::super::dataflow::GlobalFLowGraph;
+use super::super::instruction::{Inst, Label};
+use super::super::program::AsmGlobal;
 use super::GlobalOptimizer;
 
 #[derive(Default)]

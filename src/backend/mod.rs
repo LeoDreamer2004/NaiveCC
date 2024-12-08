@@ -1,11 +1,11 @@
 mod assign;
 mod constants;
 mod dataflow;
+mod address;
 mod env;
 mod frames;
 mod generate;
 mod instruction;
-mod location;
 mod manager;
 mod opt;
 mod program;

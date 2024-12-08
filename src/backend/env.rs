@@ -1,8 +1,7 @@
 //! Backend environment.
 
 use super::frames::StackFrame;
-use super::location::{AsmElement, Pointer};
-use super::manager::{InfoPack, ValueTable};
+use super::manager::{AsmElement, InfoPack, Pointer, DiscriptorTable};
 use super::AsmError;
 use crate::utils::namer::IdGenerator;
 use koopa::ir::entities::ValueData;
@@ -58,7 +57,7 @@ impl<'a> Context<'a> {
 
 pub struct Environment<'a> {
     pub ctx: Context<'a>,
-    pub table: ValueTable,
+    pub table: DiscriptorTable,
     pub sf: StackFrame,
     pub l_gen: IdGenerator<BasicBlock>,
 }
@@ -67,7 +66,7 @@ impl<'a> Environment<'a> {
     pub fn new(program: &'a Program) -> Self {
         Environment {
             ctx: Context::new(program),
-            table: ValueTable::default(),
+            table: DiscriptorTable::default(),
             sf: StackFrame::default(),
             l_gen: IdGenerator::new(|e| format!("L{}", e)),
         }

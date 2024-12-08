@@ -1,10 +1,8 @@
+use super::super::dataflow::{FunctionFlowGraph, GenKillParser, ReachDefiniteAnalyser};
+use super::util::ValueReplace;
 use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
 use std::collections::{HashMap, HashSet};
-
-use crate::frontend::dataflow::{FunctionFlowGraph, GenKillParser, ReachDefiniteAnalyser};
-
-use super::util::ValueReplace;
 
 #[derive(Default)]
 pub struct CopyBroadcast {

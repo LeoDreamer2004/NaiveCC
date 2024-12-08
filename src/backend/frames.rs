@@ -1,5 +1,5 @@
 use super::instruction::*;
-use super::location::Stack;
+use super::address::Stack;
 use super::program::{AsmGlobal, AsmLocal};
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};

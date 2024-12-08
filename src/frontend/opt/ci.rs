@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
 use koopa::ir::builder::ValueBuilder;
 use koopa::ir::{BasicBlock, BinaryOp, Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ConstantsInline {

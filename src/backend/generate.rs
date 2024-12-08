@@ -347,14 +347,18 @@ impl ValueAsmGenerator for Call {
         let func_data = env.ctx.program.func(self.callee());
         let ident = original_ident(&func_data.name().to_string());
         asm.insts_mut().push(Inst::Call(ident));
-        let is_unit = match func_data.ty().kind() {
-            TypeKind::Function(_, ret) => ret.is_unit(),
+
+        match func_data.ty().kind() {
+            TypeKind::Function(_, ret) => {
+                if !ret.is_unit() {
+                    // return value
+                    let reg = env.table.new_val(ret_data);
+                    asm.insts_mut().push(Inst::Mv(reg, registers::A0));
+                }
+            }
             _ => unreachable!("Call callee should always be a function"),
         };
-        if !is_unit {
-            let reg = env.table.new_val(ret_data);
-            asm.insts_mut().push(Inst::Mv(reg, registers::A0));
-        }
+        
         Ok(())
     }
 }
@@ -366,11 +370,7 @@ impl ValueAsmGenerator for GetElemPtr {
         env: &mut Environment,
         asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
-        let value = env.ctx.func_data().dfg().values().get(&self.src());
-        let ty = match value {
-            Some(v) => v.ty().clone(),
-            None => env.ctx.program.borrow_value(self.src()).ty().clone(),
-        };
+        let ty = env.ctx.value_type(self.src());
         let size = match ty.kind() {
             TypeKind::Pointer(p) => match p.kind() {
                 TypeKind::Array(a, _) => a.size(),
@@ -380,7 +380,7 @@ impl ValueAsmGenerator for GetElemPtr {
         };
         let mut pack = env.new_pack(self.src())?;
         let bias = self.index().into_element(&env.ctx);
-        env.table.add_bias(&mut pack, &bias, size, asm)?;
+        env.table.add_bias(&mut pack, &bias, size)?;
         env.table.new_val_with_src(ret_data, pack, asm)
     }
 }
@@ -399,7 +399,7 @@ impl ValueAsmGenerator for GetPtr {
         };
         let mut pack = env.new_pack(self.src())?;
         let bias = &self.index().into_element(&env.ctx);
-        env.table.add_bias(&mut pack, bias, size, asm)?;
+        env.table.add_bias(&mut pack, bias, size)?;
         env.table.new_val_with_src(ret_data, pack, asm)
     }
 }

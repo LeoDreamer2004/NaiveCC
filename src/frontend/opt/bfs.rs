@@ -1,7 +1,6 @@
+use super::super::dataflow::FunctionFlowGraph;
 use koopa::ir::{BasicBlock, Function, FunctionData, Value};
 use koopa::opt::FunctionPass;
-
-use crate::frontend::dataflow::FunctionFlowGraph;
 
 #[derive(Default)]
 pub struct BlockFlowSimplify {

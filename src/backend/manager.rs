@@ -1,21 +1,41 @@
 use super::instruction::*;
-use super::location::{AsmElement, Data, Location, Pointer, Stack, ToLocation};
+use super::address::{Data, Descriptor, Stack, ToDescriptor};
 use super::program::AsmLocal;
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
+use koopa::ir::entities::ValueData;
 use koopa::ir::{FunctionData, ValueKind};
 use std::collections::HashMap;
+
+pub type Pointer = *const ValueData;
+/// Basic element in an instruction, including immediate value and register.
+pub enum AsmElement {
+    Local(Pointer),
+    Imm(i32),
+}
+
+impl AsmElement {
+    pub fn from(data: Pointer) -> Self {
+        unsafe {
+            match data.as_ref().unwrap().kind() {
+                ValueKind::Integer(int) => AsmElement::Imm(int.value()),
+                ValueKind::ZeroInit(_) => AsmElement::Imm(0),
+                _ => AsmElement::Local(data),
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct PointerInfo {
     /// where the data is stored
-    location: Location,
+    descriptor: Descriptor,
     /// The reference what the data stored
     refer: Option<Stack>,
 }
 
 #[derive(Debug, Default)]
-pub struct ValueTable {
+pub struct DiscriptorTable {
     map: HashMap<Pointer, PointerInfo>,
     glb_map: HashMap<Pointer, PointerInfo>,
     reg_index: usize,
@@ -41,31 +61,35 @@ impl InfoPack {
     pub fn write_on(self, asm: &mut AsmLocal) {
         asm.insts_mut().extend(self.insts);
     }
+
+    pub fn merge_into(self, pack: &mut InfoPack) {
+        pack.insts.extend(self.insts);
+    }
 }
 
-impl ValueTable {
-    pub fn add_loc(&mut self, ptr: Pointer, loc: Location) {
+impl DiscriptorTable {
+    pub fn add_desc(&mut self, ptr: Pointer, desc: Descriptor) {
         self.map.insert(
             ptr,
             PointerInfo {
-                location: loc,
+                descriptor: desc,
                 refer: None,
             },
         );
     }
 
-    pub fn add_glb_loc(&mut self, ptr: Pointer, loc: Location) {
+    pub fn add_glb_desc(&mut self, ptr: Pointer, desc: Descriptor) {
         self.glb_map.insert(
             ptr,
             PointerInfo {
-                location: loc,
+                descriptor: desc,
                 refer: None,
             },
         );
     }
 
-    pub fn loc(&self, ptr: Pointer) -> Result<&Location, AsmError> {
-        self.info(ptr).map(|info| &info.location)
+    pub fn desc(&self, ptr: Pointer) -> Result<&Descriptor, AsmError> {
+        self.info(ptr).map(|info| &info.descriptor)
     }
 
     pub fn refer(&self, ptr: Pointer) -> Result<&Option<Stack>, AsmError> {
@@ -98,9 +122,9 @@ impl ValueTable {
     }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
-        let loc = Data { label, offset: 0 }.to_loc();
-        self.add_loc(ptr, loc.clone());
-        self.add_glb_loc(ptr, loc);
+        let desc = Data { label, offset: 0 }.to_desc();
+        self.add_desc(ptr, desc.clone());
+        self.add_glb_desc(ptr, desc);
     }
 
     pub fn new_reg(&mut self) -> Register {
@@ -110,7 +134,7 @@ impl ValueTable {
 
     pub fn new_val(&mut self, ptr: Pointer) -> Register {
         let reg = self.new_reg();
-        self.add_loc(ptr, reg.to_loc());
+        self.add_desc(ptr, reg.to_desc());
         reg
     }
 
@@ -120,8 +144,8 @@ impl ValueTable {
         src: InfoPack,
         asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
-        let address = src.reg.to_loc();
-        self.add_loc(ptr, address);
+        let address = src.reg.to_desc();
+        self.add_desc(ptr, address);
         self.save_val_to(ptr, src, asm)
     }
 
@@ -137,18 +161,18 @@ impl ValueTable {
         src.write_on(asm);
         let insts = asm.insts_mut();
 
-        match self.loc(dest)? {
-            Location::Register(reg) => {
+        match self.desc(dest)? {
+            Descriptor::Register(reg) => {
                 if *reg == rs {
                     return Ok(());
                 }
                 insts.push(Inst::Mv(*reg, rs));
             }
-            Location::Stack(stack) => {
+            Descriptor::Stack(stack) => {
                 // save the data in the register to the stack
                 insts.push(Inst::Sw(rs, stack.base, stack.offset));
             }
-            Location::Data(data) => {
+            Descriptor::Data(data) => {
                 let label = data.label.clone();
                 insts.push(Inst::La(FREE_REG, label));
                 insts.push(Inst::Sw(rs, FREE_REG, data.offset));
@@ -161,19 +185,19 @@ impl ValueTable {
     pub fn load_val_to(&mut self, src: Pointer, dest: &mut InfoPack) -> Result<(), AsmError> {
         let dest_reg = dest.reg;
         dest.refer = self.refer(src)?.clone();
-        match self.loc(src)? {
-            Location::Register(reg) => {
+        match self.desc(src)? {
+            Descriptor::Register(reg) => {
                 if *reg != dest_reg {
                     dest.insts.push(Inst::Mv(dest_reg, *reg));
                     dest.reg = dest_reg;
                 }
             }
-            Location::Stack(stack) => {
+            Descriptor::Stack(stack) => {
                 dest.insts
                     .push(Inst::Lw(dest_reg, stack.base, stack.offset));
                 dest.reg = dest_reg;
             }
-            Location::Data(data) => {
+            Descriptor::Data(data) => {
                 dest.insts.push(Inst::La(dest_reg, data.label.clone()));
                 dest.insts.push(Inst::Addi(dest_reg, dest_reg, data.offset));
                 dest.reg = dest_reg;
@@ -239,7 +263,6 @@ impl ValueTable {
         pack: &mut InfoPack,
         bias: &AsmElement,
         unit_size: usize,
-        asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let reg = pack.reg;
         match bias {
@@ -247,23 +270,12 @@ impl ValueTable {
                 pack.refer = None;
                 let mut p = InfoPack::new(FREE_REG);
                 self.load_val_to(ptr.clone(), &mut p)?;
-                p.write_on(asm);
-
-                if unit_size.count_ones() == 1 {
-                    // Simple case: unit_size is a power of 2
-                    pack.insts.push(Inst::Slli(
-                        FREE_REG,
-                        FREE_REG,
-                        unit_size.trailing_zeros() as i32,
-                    ));
-                } else {
-                    let mut p = InfoPack::new(self.new_reg());
-                    self.load_imm_to(unit_size as i32, &mut p)?;
-                    let unit = p.reg;
-                    p.write_on(asm);
-                    pack.insts.push(Inst::Mul(FREE_REG, FREE_REG, unit));
-                }
-
+                p.merge_into(pack);
+                let mut p = InfoPack::new(self.new_reg());
+                self.load_imm_to(unit_size as i32, &mut p)?;
+                let unit = p.reg;
+                p.merge_into(pack);
+                pack.insts.push(Inst::Mul(FREE_REG, FREE_REG, unit));
                 pack.insts.push(Inst::Add(reg, reg, FREE_REG));
             }
             AsmElement::Imm(imm) => {
@@ -277,12 +289,12 @@ impl ValueTable {
         Ok(())
     }
 
-    fn param_location(index: usize) -> Location {
+    fn param_desc(index: usize) -> Descriptor {
         if index < MAX_PARAM_REG {
-            RegisterType::Arg.all()[index].to_loc()
-        } else {
+            RegisterType::Arg.all()[index].to_desc()
+        } else { 
             let offset = ((index - MAX_PARAM_REG) * INT_SIZE) as i32;
-            Stack { base: SP, offset }.to_loc()
+            Stack { base: SP, offset }.to_desc()
         }
     }
 
@@ -299,26 +311,26 @@ impl ValueTable {
         }
 
         for (index, &p) in func_data.params().iter().enumerate() {
-            let location = match Self::param_location(index) {
-                Location::Register(reg) => {
+            let descriptor = match Self::param_desc(index) {
+                Descriptor::Register(reg) => {
                     if index >= max_args {
-                        reg.to_loc()
+                        reg.to_desc()
                     } else {
+                        // may be covered, use a new register
                         let real = self.new_reg();
                         let inst = Inst::Mv(real, reg);
                         asm.insts_mut().push(inst);
-                        real.to_loc()
+                        real.to_desc()
                     }
                 }
-                Location::Stack(stack) => {
-                    // the params are in the stack of the caller
+                Descriptor::Stack(stack) => {
                     let offset = stack.offset;
-                    Stack { base: FP, offset }.to_loc()
+                    Stack { base: FP, offset }.to_desc()
                 }
-                Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
+                Descriptor::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
             };
             let param = func_data.dfg().value(p);
-            self.add_loc(param, location);
+            self.add_desc(param, descriptor);
         }
 
         Ok(())
@@ -331,20 +343,20 @@ impl ValueTable {
         asm: &mut AsmLocal,
     ) -> Result<(), AsmError> {
         let e = AsmElement::from(param);
-        match Self::param_location(index) {
-            Location::Register(reg) => {
+        match Self::param_desc(index) {
+            Descriptor::Register(reg) => {
                 let mut pack = InfoPack::new(reg);
                 self.load_to(&e, &mut pack)?;
                 pack.write_on(asm);
             }
-            Location::Stack(stack) => {
+            Descriptor::Stack(stack) => {
                 let mut pack = InfoPack::new(FREE_REG);
                 self.load_to(&e, &mut pack)?;
                 pack.write_on(asm);
                 asm.insts_mut()
                     .push(Inst::Sw(FREE_REG, stack.base, stack.offset));
             }
-            Location::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
+            Descriptor::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
         }
         Ok(())
     }
