@@ -62,7 +62,9 @@ impl EntityAsmGenerator for Program {
                 let mut glb = AsmGlobal::new(Section::Text, label);
 
                 let label = format!(".prologue_{}", env.table.new_func_idx());
-                glb.new_local(AsmLocal::new(Some(label)));
+                let mut prologue = env.sf.build_prologue(func_data);
+                prologue.label_mut().replace(label.clone());
+                glb.new_local(prologue);
 
                 func_data.generate_on(env, &mut glb)?;
                 asm.new_global(glb);
@@ -113,9 +115,6 @@ impl EntityAsmGenerator for FunctionData {
     type AsmTarget = AsmGlobal;
 
     fn generate_on(&self, env: &mut Environment, asm: &mut AsmGlobal) -> Result<(), AsmError> {
-        let prologue = asm.locals_mut().last_mut().unwrap();
-        env.sf.build_prologue(self, prologue);
-
         // load params first
         let mut param = AsmLocal::new(Some(".params".into()));
         env.table.load_func_param(self, &mut param)?;

@@ -232,8 +232,7 @@ impl DiscriptorTable {
         if let Some(stack) = dest.refer.clone() {
             for (_, info) in &self.map {
                 if info.refer == dest.refer {
-                    dest.insts
-                        .push(Inst::Lw(dest.reg, stack.base, stack.offset));
+                    dest.insts = vec![Inst::Lw(dest.reg, stack.base, stack.offset)];
                     return;
                 }
             }

@@ -1,5 +1,5 @@
-use super::instruction::*;
 use super::address::Stack;
+use super::instruction::*;
 use super::program::{AsmGlobal, AsmLocal};
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
@@ -64,9 +64,9 @@ impl StackFrame {
     /// Start a new frame and build the prologue.
     ///
     /// Note: The prologue is not complete until the end_fill is called.
-    pub fn build_prologue(&mut self, func_data: &FunctionData, asm: &mut AsmLocal) {
+    pub fn build_prologue(&mut self, func_data: &FunctionData) -> AsmLocal {
+        let mut asm = AsmLocal::new(None);
         let insts = asm.insts_mut();
-
         // add a placeholder here, waiting for update when the frame size is known.
         insts.push(Inst::Placeholder(Self::SP_IN));
 
@@ -91,6 +91,7 @@ impl StackFrame {
             insts.push(Inst::Placeholder(Self::SAVE_FP));
             insts.push(Inst::Mv(FP, SP));
         }
+        asm
     }
 
     /// Mark an exit of the frame and build the epilogue.
@@ -127,39 +128,18 @@ impl StackFrame {
         for local in asm.locals_mut().iter_mut().rev() {
             for inst in local.insts_mut().iter_mut().rev() {
                 if let Inst::Placeholder(p) = inst {
-                    match *p {
-                        Self::SP_IN => {
-                            if size == 0 {
-                                *inst = Inst::Nop;
-                            } else {
-                                *inst = Inst::Addi(SP, SP, -size);
-                            }
-                            return Ok(());
-                        }
-                        Self::SP_OUT => {
-                            *inst = if size == 0 {
-                                Inst::Nop
-                            } else {
-                                Inst::Addi(SP, SP, size)
-                            }
-                        }
-                        Self::SAVE_RA => {
-                            *inst = Inst::Sw(RA, SP, size - INT_SIZE as i32);
-                        }
-                        Self::RECOVER_RA => {
-                            *inst = Inst::Lw(RA, SP, size - INT_SIZE as i32);
-                        }
-                        Self::SAVE_FP => {
-                            *inst = Inst::Sw(FP, SP, size - 2 * INT_SIZE as i32);
-                        }
-                        Self::RECOVER_FP => {
-                            *inst = Inst::Lw(FP, SP, size - 2 * INT_SIZE as i32);
-                        }
+                    *inst = match *p {
+                        Self::SP_IN => Inst::Addi(SP, SP, -size),
+                        Self::SP_OUT => Inst::Addi(SP, SP, size),
+                        Self::SAVE_RA => Inst::Sw(RA, SP, size - INT_SIZE as i32),
+                        Self::RECOVER_RA => Inst::Lw(RA, SP, size - INT_SIZE as i32),
+                        Self::SAVE_FP => Inst::Sw(FP, SP, size - 2 * INT_SIZE as i32),
+                        Self::RECOVER_FP => Inst::Lw(FP, SP, size - 2 * INT_SIZE as i32),
                         _ => unreachable!("Unknown placeholder"),
                     }
                 }
             }
         }
-        Err(AsmError::InvalidStackFrame)
+        Ok(())
     }
 }

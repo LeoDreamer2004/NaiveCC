@@ -17,6 +17,9 @@ impl LocalOptimizer for ImmFixOptimizer {
                         csr.remove_cur();
                         csr.insert(Inst::Li(FREE_REG, imm));
                         csr.insert(Inst::Add(rd, rs, FREE_REG));
+                    } else if imm == 0 {
+                        csr.remove_cur();
+                        csr.insert(Inst::Mv(rd, rs));
                     }
                 }
                 Inst::Ori(rd, rs, imm) => {
@@ -24,6 +27,11 @@ impl LocalOptimizer for ImmFixOptimizer {
                         csr.remove_cur();
                         csr.insert(Inst::Li(FREE_REG, imm));
                         csr.insert(Inst::Or(rd, rs, FREE_REG));
+                    } else if imm == 0 {
+                        csr.remove_cur();
+                        if rd != rs {
+                            csr.insert(Inst::Mv(rd, rs));
+                        }
                     }
                 }
                 Inst::Andi(rd, rs, imm) => {
@@ -31,6 +39,9 @@ impl LocalOptimizer for ImmFixOptimizer {
                         csr.remove_cur();
                         csr.insert(Inst::Li(FREE_REG, imm));
                         csr.insert(Inst::And(rd, rs, FREE_REG));
+                    } else if imm == 0 {
+                        csr.remove_cur();
+                        csr.insert(Inst::Li(rd, 0));
                     }
                 }
                 Inst::Xori(rd, rs, imm) => {
@@ -38,6 +49,11 @@ impl LocalOptimizer for ImmFixOptimizer {
                         csr.remove_cur();
                         csr.insert(Inst::Li(FREE_REG, imm));
                         csr.insert(Inst::Xor(rd, rs, FREE_REG));
+                    } else if imm == 0 {
+                        csr.remove_cur();
+                        if rd != rs {
+                            csr.insert(Inst::Mv(rd, rs));
+                        }
                     }
                 }
                 Inst::Lw(rd, rs, imm) => {

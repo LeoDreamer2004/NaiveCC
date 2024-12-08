@@ -126,6 +126,10 @@ impl AsmLocal {
         &self.label
     }
 
+    pub fn label_mut(&mut self) -> &mut Option<Label> {
+        &mut self.label
+    }
+
     pub fn insts(&self) -> &Vec<Inst> {
         &self.insts
     }
