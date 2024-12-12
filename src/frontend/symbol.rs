@@ -13,7 +13,7 @@ use koopa::ir::{Type, Value};
 /// Implemented as a stack of scopes
 #[derive(Debug, Default)]
 pub struct SymbolTable {
-    pub items: Vec<SymbolItem>,
+    items: Vec<SymbolItem>,
 }
 
 /// A collection of all symbols
@@ -28,7 +28,7 @@ pub enum SymbolItem {
 }
 
 impl SymbolItem {
-    pub fn symbol(&self) -> &dyn Symbol {
+    fn symbol(&self) -> &dyn Symbol {
         match self {
             SymbolItem::Var(symbol) => symbol,
             SymbolItem::VarArray(symbol) => symbol,
@@ -38,12 +38,24 @@ impl SymbolItem {
             SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
         }
     }
+
+    fn symbol_clone(&self) -> Box<dyn Symbol> {
+        match self {
+            SymbolItem::Var(symbol) => Box::new(symbol.clone()),
+            SymbolItem::VarArray(symbol) => Box::new(symbol.clone()),
+            SymbolItem::Const(symbol) => Box::new(symbol.clone()),
+            SymbolItem::ConstArray(symbol) => Box::new(symbol.clone()),
+            SymbolItem::FParamArray(symbol) => Box::new(symbol.clone()),
+            SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
+        }
+    }
 }
 
 impl SymbolTable {
-    pub fn new_symbol(&mut self, symbol: &impl SymbolLike) -> Result<&SymbolItem, AstError> {
-        self.items.push(symbol.wrap(self)?);
-        Ok(self.items.last_mut().unwrap())
+    pub fn new_symbol(&mut self, symbol: &impl SymbolLike) -> Result<Box<dyn Symbol>, AstError> {
+        let item = symbol.wrap(self)?;
+        self.items.push(item.clone());
+        Ok(item.symbol_clone())
     }
 
     pub fn set_alloc(&mut self, ident: &String, alloc: Value) -> Result<(), AstError> {
@@ -89,6 +101,13 @@ impl SymbolTable {
 
     pub fn lookup(&self, ident: &String) -> Option<&dyn Symbol> {
         self.lookup_item(ident).map(|item| item.symbol())
+    }
+
+    pub fn lookup_const_val(&self, ident: &String) -> Option<i32> {
+        match self.lookup_item(ident) {
+            Some(SymbolItem::Const(symbol)) => Some(symbol.value),
+            _ => None,
+        }
     }
 
     pub fn enter_scope(&mut self) {
@@ -163,7 +182,7 @@ pub trait Symbol {
     fn gen_value(
         &self,
         ty: Type,
-        init: &Option<Init>,
+        init: Option<Init>,
         env: &mut Environment,
     ) -> Result<(), AstError>;
 }
@@ -237,7 +256,7 @@ impl Symbol for VarSymbol {
     fn gen_value(
         &self,
         ty: Type,
-        init: &Option<Init>,
+        init: Option<Init>,
         env: &mut Environment,
     ) -> Result<(), AstError> {
         let mut has_init = false;
@@ -300,7 +319,7 @@ impl Symbol for ConstSymbol {
         Err(AstError::TypeError("Not an array".to_string()))
     }
 
-    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Environment) -> Result<(), AstError> {
+    fn gen_value(&self, _: Type, _: Option<Init>, _: &mut Environment) -> Result<(), AstError> {
         Ok(())
     }
 }
@@ -335,7 +354,7 @@ impl Symbol for VarArraySymbol {
     fn gen_value(
         &self,
         ty: Type,
-        init: &Option<Init>,
+        init: Option<Init>,
         env: &mut Environment,
     ) -> Result<(), AstError> {
         let bias = self.get_bias()?;
@@ -406,7 +425,7 @@ impl Symbol for ConstArraySymbol {
     fn gen_value(
         &self,
         _: Type,
-        init: &Option<Init>,
+        init: Option<Init>,
         env: &mut Environment,
     ) -> Result<(), AstError> {
         let init = match init {
@@ -479,7 +498,7 @@ impl Symbol for FParamArraySymbol {
         }
         Ok(ptr)
     }
-    fn gen_value(&self, _: Type, _: &Option<Init>, _: &mut Environment) -> Result<(), AstError> {
+    fn gen_value(&self, _: Type, _: Option<Init>, _: &mut Environment) -> Result<(), AstError> {
         // Do nothing, as it is finished in Koopa builtin
         Ok(())
     }
@@ -679,9 +698,9 @@ pub enum ArrayType<'a, A: Initilizer> {
     Array(&'a Vec<A>),
 }
 
-pub enum Init {
-    Const(ConstInitVal),
-    Var(InitVal),
+pub enum Init<'a> {
+    Const(&'a ConstInitVal),
+    Var(&'a InitVal),
 }
 
 pub trait Initilizer

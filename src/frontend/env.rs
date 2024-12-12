@@ -185,4 +185,18 @@ impl Context {
         let block = self.block.unwrap();
         add_inst!(self.func_data(), block, inst);
     }
+
+    /// Get the type of the value.
+    pub fn value_type(&self, value: Value) -> Type {
+        let v = self
+            .program
+            .func(self.func.unwrap())
+            .dfg()
+            .values()
+            .get(&value);
+        match v {
+            Some(v) => v.ty().clone(),
+            None => self.program.borrow_value(value).ty().clone(),
+        }
+    }
 }

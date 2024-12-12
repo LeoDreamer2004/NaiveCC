@@ -23,7 +23,7 @@ fn builtin_functions() -> Vec<FunctionData> {
     ]
 }
 
-pub fn set_up_builtins(ctx: &mut Context) {
+pub fn setup_builtins(ctx: &mut Context) {
     // builtin functions
     let builtins = builtin_functions();
     for func in builtins {

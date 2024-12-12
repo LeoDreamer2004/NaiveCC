@@ -60,10 +60,6 @@ impl CopyBroadcast {
                 match data.kind() {
                     ValueKind::Store(store) => {
                         let value = store.value();
-                        // let s_data = func_data.dfg().value(value);
-                        // if !s_data.ty().is_i32() {
-                        //     continue;
-                        // }
                         if func_data.dfg().values().contains_key(&store.dest()) {
                             livemap.insert(store.dest(), value);
                         }

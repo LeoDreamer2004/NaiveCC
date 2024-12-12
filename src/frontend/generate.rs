@@ -1,7 +1,7 @@
 //! Main module for generating IR from AST (frontend)
 
 use super::ast::*;
-use super::builtin::set_up_builtins;
+use super::builtin::setup_builtins;
 use super::env::Environment;
 use super::eval::Eval;
 use super::loops::*;
@@ -20,7 +20,7 @@ pub trait GenerateIr {
     /// Generate IR on the given env
     ///
     /// # Errors
-    /// Returns an [`ParseError`] if the generation fails
+    /// Returns an [`AstError`] if the generation fails
     fn generate_on(&self, env: &mut Environment) -> Result<Self::IrTarget, AstError>;
 }
 
@@ -28,16 +28,12 @@ impl GenerateIr for CompUnit {
     type IrTarget = ();
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
-        set_up_builtins(&mut env.ctx);
+        setup_builtins(&mut env.ctx);
 
         for comp_item in &self.comp_items {
             match comp_item {
-                CompItem::FuncDef(func_def) => {
-                    func_def.generate_on(env)?;
-                }
-                CompItem::Decl(decl) => {
-                    decl.generate_on(env)?;
-                }
+                CompItem::FuncDef(func_def) => func_def.generate_on(env)?,
+                CompItem::Decl(decl) => decl.generate_on(env)?,
             }
         }
         Ok(())
@@ -53,7 +49,7 @@ impl GenerateIr for FuncDef {
         let mut p_types = vec![];
         let mut params = vec![];
         for param in &self.params {
-            let symbol = env.table.new_symbol(param)?.symbol();
+            let symbol = env.table.new_symbol(param)?;
             let ty = symbol.get_type(param.b_type.into())?;
             p_types.push(ty.clone());
             params.push((Some(global_ident(symbol.ident())), ty));
@@ -74,7 +70,7 @@ impl GenerateIr for FuncDef {
             let value = env.ctx.func_data().params()[i];
             let alloc = env.ctx.alloc_and_store(value, p_types[i].clone());
             env.ctx.set_value_name(alloc, normal_ident(&param.ident));
-            env.table.set_alloc(&param.ident(), alloc)?;
+            env.table.set_alloc(&param.ident, alloc)?;
         }
         self.block.generate_on(env)?;
         env.table.exit_scope();
@@ -105,6 +101,7 @@ impl GenerateIr for Block {
         if self.block_items.is_empty() {
             return Ok(());
         }
+        
         env.ctx.new_block(None, true);
         env.table.enter_scope();
 
@@ -150,40 +147,26 @@ impl GenerateIr for LVal {
 
     /// Returns the address of the left value
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
-        match env.table.lookup_item(&self.ident) {
-            Some(item) => match item {
-                SymbolItem::Var(symbol) => symbol.get_alloc(),
-                SymbolItem::VarArray(symbol) => {
-                    let symbol = symbol.clone();
-                    let mut indexes = vec![];
-                    for exp in &self.array_index {
-                        indexes.push(exp.generate_on(env)?.value);
-                    }
-                    let addr = symbol.index(&indexes, &mut env.ctx)?;
-                    Ok(addr)
-                }
-                SymbolItem::FParamArray(symbol) => {
-                    let symbol = symbol.clone();
-                    let mut indexes = vec![];
-                    for exp in &self.array_index {
-                        indexes.push(exp.generate_on(env)?.value);
-                    }
-                    let addr = symbol.index(&indexes, &mut env.ctx)?;
-                    Ok(addr)
-                }
-                SymbolItem::Const(_) => panic!("Constant are not a left value!"),
-                SymbolItem::ConstArray(symbol) => {
-                    let symbol = symbol.clone();
-                    let mut indexes = vec![];
-                    for exp in &self.array_index {
-                        indexes.push(exp.generate_on(env)?.value);
-                    }
-                    let addr = symbol.index(&indexes, &mut env.ctx)?;
-                    Ok(addr)
-                }
-                SymbolItem::ScopeSeparator => unreachable!(),
-            },
-            None => Err(AstError::SymbolNotFoundError(self.ident.clone())),
+        let mut indexes = vec![];
+        for exp in &self.array_index {
+            indexes.push(exp.generate_on(env)?.value);
+        }
+
+        let symbol = env
+            .table
+            .lookup(&self.ident)
+            .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?;
+
+        if !symbol.is_single() {
+            let addr = symbol.index(&indexes, &mut env.ctx)?;
+            Ok(addr)
+        } else if !symbol.is_const() {
+            if indexes.is_empty() {
+                return symbol.get_alloc();
+            }
+            Err(AstError::TypeError("Cannot index a single value!".into()))
+        } else {
+            Err(AstError::TypeError("Constant are not a left value!".into()))
         }
     }
 }
@@ -331,14 +314,13 @@ impl GenerateIr for ConstDecl {
     type IrTarget = ();
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
-        for const_def in self.const_defs.clone() {
-            let item = env.table.new_symbol(&const_def)?.clone();
-            let init = Some(Init::Const(const_def.const_init_val));
-            let symbol = item.symbol();
+        for const_def in &self.const_defs {
+            let symbol = env.table.new_symbol(const_def)?;
+            let init = Some(Init::Const(&const_def.const_init_val));
             if !symbol.is_const() {
                 panic!("ConstDecl::generate_on: variable should be in VarDecl");
             }
-            symbol.gen_value(self.b_type.into(), &init, env)?;
+            symbol.gen_value(self.b_type.into(), init, env)?;
         }
         Ok(())
     }
@@ -348,14 +330,13 @@ impl GenerateIr for VarDecl {
     type IrTarget = ();
 
     fn generate_on(&self, env: &mut Environment) -> Result<(), AstError> {
-        for var_def in self.var_defs.clone() {
-            let item = env.table.new_symbol(&var_def)?.clone();
-            let init = var_def.init_val.map(|init| Init::Var(init));
-            let symbol = item.symbol();
+        for var_def in &self.var_defs {
+            let symbol = env.table.new_symbol(var_def)?;
+            let init = var_def.init_val.as_ref().map(|init| Init::Var(init));
             if symbol.is_const() {
                 panic!("VarDecl::generate_on: const variable should be in ConstDecl");
             }
-            symbol.gen_value(self.b_type.into(), &init, env)?;
+            symbol.gen_value(self.b_type.into(), init, env)?;
         }
         Ok(())
     }
@@ -698,46 +679,44 @@ impl GenerateIr for LValExp {
     type IrTarget = ExpResult;
 
     fn generate_on(&self, env: &mut Environment) -> Result<ExpResult, AstError> {
-        match env
+        let symbol = env
             .table
-            .lookup_item(&self.ident)
-            .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?
-        {
-            item => match item {
-                SymbolItem::Const(symbol) => symbol.value.clone().generate_on(env),
+            .lookup(&self.ident)
+            .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?;
+
+        // if the symbol is a const, return the value
+        if symbol.is_const() && symbol.is_single() {
+            return env
+                .table
+                .lookup_const_val(&self.ident)
+                .unwrap()
+                .generate_on(env);
+        }
+
+        // if not a const, load the value
+        let lval = LVal {
+            ident: self.ident.clone(),
+            array_index: self.array_index.clone(),
+        };
+        let alloc = lval.generate_on(env)?;
+        let kind = env.ctx.value_type(alloc).kind().clone();
+        let value = match kind {
+            TypeKind::Pointer(ty) => match ty.kind() {
+                TypeKind::Array(_, _) => {
+                    let zero = env.ctx.local_val().integer(0);
+                    let ptr = env.ctx.local_val().get_elem_ptr(alloc, zero);
+                    env.ctx.add_inst(ptr);
+                    ptr
+                }
                 _ => {
-                    // if not a const, load the value
-                    let lval = LVal {
-                        ident: self.ident.clone(),
-                        array_index: self.array_index.clone(),
-                    };
-                    let alloc = lval.generate_on(env)?;
-                    let data = env.ctx.func_data().dfg().values().get(&alloc);
-                    let kind = match data {
-                        Some(data) => data.ty().kind().clone(),
-                        None =>
-                        env.ctx.program.borrow_values().get(&alloc).ok_or(AstError::UnknownError("The generated left value should have a data in the env, but it didn't.".into()))?.ty().kind().clone()
-                    };
-                    let value = match kind {
-                        TypeKind::Pointer(ty) => match ty.kind() {
-                            TypeKind::Array(_, _) => {
-                                let zero = env.ctx.local_val().integer(0);
-                                let ptr = env.ctx.local_val().get_elem_ptr(alloc, zero);
-                                env.ctx.add_inst(ptr);
-                                ptr
-                            }
-                            _ => {
-                                let load = env.ctx.local_val().load(alloc);
-                                env.ctx.add_inst(load);
-                                load
-                            }
-                        },
-                        _ => unreachable!("LValExp::generate_on: not a pointer type"),
-                    };
-                    Ok(ExpResult::safe(value))
+                    let load = env.ctx.local_val().load(alloc);
+                    env.ctx.add_inst(load);
+                    load
                 }
             },
-        }
+            _ => unreachable!("LValExp::generate_on: not a pointer type"),
+        };
+        Ok(ExpResult::safe(value))
     }
 }
 

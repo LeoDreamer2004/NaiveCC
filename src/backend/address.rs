@@ -16,7 +16,7 @@ pub struct Data {
     pub offset: i32,
 }
 
-/// Location of the data.
+/// Address descriptor of the data.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Descriptor {
     /// The data is in the register.

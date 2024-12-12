@@ -21,14 +21,23 @@ use std::io;
 
 #[derive(Debug)]
 pub enum AstError {
+    /// Error when the function is not found.
     FunctionNotFoundError(String),
+    /// Error when the constant expression is illegal.
     IllegalConstExpError(String),
+    /// Error when the variable is not found.
     SymbolNotFoundError(String),
+    /// Error when the variable is wrongly initialized.
     InitializeError(String),
+    /// Error when the variable is wrongly accessed.
     IllegalAccessError(String),
+    /// Error when the loop stack is wrongly used.
     LoopStackError(String),
+    /// Error when the variable is wrongly assigned.
     AssignError(String),
+    /// Error when the type is error.
     TypeError(String),
+    /// Unknown error.
     UnknownError(String),
 }
 

@@ -1,5 +1,5 @@
-use super::instruction::*;
 use super::address::{Data, Descriptor, Stack, ToDescriptor};
+use super::instruction::*;
 use super::program::AsmLocal;
 use super::registers::*;
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
@@ -7,7 +7,9 @@ use koopa::ir::entities::ValueData;
 use koopa::ir::{FunctionData, ValueKind};
 use std::collections::HashMap;
 
+/// Pointer to the data, also the key of the [`DiscriptorTable`].
 pub type Pointer = *const ValueData;
+
 /// Basic element in an instruction, including immediate value and register.
 pub enum AsmElement {
     Local(Pointer),
@@ -42,6 +44,8 @@ pub struct DiscriptorTable {
     func_index: usize,
 }
 
+/// A pack of information, including the register,
+/// (optional) address reference, and cached instructions.
 #[derive(Debug, Clone)]
 pub struct InfoPack {
     pub reg: Register,
@@ -58,12 +62,14 @@ impl InfoPack {
         }
     }
 
+    /// Write the cached instructions to the given [`AsmLocal`].
     pub fn write_on(self, asm: &mut AsmLocal) {
         asm.insts_mut().extend(self.insts);
     }
 
-    pub fn merge_into(self, pack: &mut InfoPack) {
-        pack.insts.extend(self.insts);
+    /// Merge the cached instructions to another pack.
+    pub fn merge_into(self, other: &mut InfoPack) {
+        other.insts.extend(self.insts);
     }
 }
 
@@ -291,7 +297,7 @@ impl DiscriptorTable {
     fn param_desc(index: usize) -> Descriptor {
         if index < MAX_PARAM_REG {
             RegisterType::Arg.all()[index].to_desc()
-        } else { 
+        } else {
             let offset = ((index - MAX_PARAM_REG) * INT_SIZE) as i32;
             Stack { base: SP, offset }.to_desc()
         }
