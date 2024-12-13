@@ -50,7 +50,7 @@ impl GenerateIr for FuncDef {
         let mut params = vec![];
         for param in &self.params {
             let symbol = env.table.new_symbol(param)?;
-            let ty = symbol.get_type(param.b_type.into())?;
+            let ty = symbol.get_type(param.b_type.into());
             p_types.push(ty.clone());
             params.push((Some(global_ident(symbol.ident())), ty));
         }

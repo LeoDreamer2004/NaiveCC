@@ -38,7 +38,7 @@ impl SymbolItem {
             SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
         }
     }
-    
+
     fn symbol_mut(&mut self) -> &mut dyn Symbol {
         match self {
             SymbolItem::Var(symbol) => symbol,
@@ -148,6 +148,9 @@ pub trait Symbol {
     /// If the symbol does not have an allocation, or it is not a variable
     fn get_alloc(&self) -> Result<Value, AstError>;
     /// Returns the dimension bias of the symbol
+    ///
+    /// # Error
+    /// If the symbol is not an array
     fn get_bias(&self) -> Result<&Vec<usize>, AstError>;
     /// Returns the index of the symbol
     ///
@@ -172,11 +175,12 @@ pub trait Symbol {
         Ok(ptr)
     }
     /// Returns the type of the symbol
-    fn get_type(&self, ty: Type) -> Result<Type, AstError> {
+    fn get_type(&self, ty: Type) -> Type {
         if self.is_single() {
-            return Ok(ty.clone());
+            ty.clone()
+        } else {
+            gen_array_type(ty, self.get_bias().unwrap())
         }
-        Ok(gen_array_type(ty, self.get_bias()?))
     }
     /// Generates the value of the symbol
     fn gen_value(
@@ -190,7 +194,7 @@ pub trait Symbol {
 #[derive(Debug, Clone)]
 pub struct ConstSymbol {
     ident: String,
-    pub value: i32,
+    value: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -474,11 +478,12 @@ impl Symbol for FParamArraySymbol {
         Ok(&self.ptr_bias)
     }
 
-    fn get_type(&self, ty: Type) -> Result<Type, AstError> {
-        let mut bias = self.get_bias()?.clone();
+    fn get_type(&self, ty: Type) -> Type {
+        let mut bias = self.ptr_bias.clone();
         bias.remove(0);
-        Ok(Type::get_pointer(gen_array_type(ty, &bias)))
+        Type::get_pointer(gen_array_type(ty, &bias))
     }
+
     fn index(&self, indexes: &Vec<Value>, ctx: &mut Context) -> Result<Value, AstError> {
         if indexes.is_empty() {
             return self.get_alloc();
