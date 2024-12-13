@@ -38,6 +38,17 @@ impl SymbolItem {
             SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
         }
     }
+    
+    fn symbol_mut(&mut self) -> &mut dyn Symbol {
+        match self {
+            SymbolItem::Var(symbol) => symbol,
+            SymbolItem::VarArray(symbol) => symbol,
+            SymbolItem::Const(symbol) => symbol,
+            SymbolItem::ConstArray(symbol) => symbol,
+            SymbolItem::FParamArray(symbol) => symbol,
+            SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
+        }
+    }
 
     fn symbol_clone(&self) -> Box<dyn Symbol> {
         match self {
@@ -63,36 +74,20 @@ impl SymbolTable {
             if matches!(item, SymbolItem::ScopeSeparator) {
                 continue;
             }
-            if item.symbol().ident() == ident {
-                match item {
-                    SymbolItem::Var(symbol) => symbol.set_alloc(alloc)?,
-                    SymbolItem::VarArray(symbol) => symbol.set_alloc(alloc)?,
-                    SymbolItem::Const(symbol) => symbol.set_alloc(alloc)?,
-                    SymbolItem::ConstArray(symbol) => symbol.set_alloc(alloc)?,
-                    SymbolItem::FParamArray(symbol) => symbol.set_alloc(alloc)?,
-                    SymbolItem::ScopeSeparator => unreachable!(),
-                };
-                return Ok(());
+            if ident == item.symbol().ident() {
+                return item.symbol_mut().set_alloc(alloc);
             }
         }
-        Ok(())
+        Err(AstError::SymbolNotFoundError(ident.clone()))
     }
 
-    pub fn lookup_item(&self, ident: &String) -> Option<&SymbolItem> {
+    fn lookup_item(&self, ident: &String) -> Option<&SymbolItem> {
         // Search from the top of the stack
         for item in self.items.iter().rev() {
             if matches!(item, SymbolItem::ScopeSeparator) {
                 continue;
             }
-            let d = match item {
-                SymbolItem::Var(symbol) => symbol.ident().clone(),
-                SymbolItem::VarArray(symbol) => symbol.ident().clone(),
-                SymbolItem::Const(symbol) => symbol.ident().clone(),
-                SymbolItem::ConstArray(symbol) => symbol.ident().clone(),
-                SymbolItem::FParamArray(symbol) => symbol.ident().clone(),
-                SymbolItem::ScopeSeparator => unreachable!(),
-            };
-            if ident.clone() == d {
+            if ident == item.symbol().ident() {
                 return Some(item);
             }
         }
@@ -101,6 +96,11 @@ impl SymbolTable {
 
     pub fn lookup(&self, ident: &String) -> Option<&dyn Symbol> {
         self.lookup_item(ident).map(|item| item.symbol())
+    }
+
+    pub fn lookup_or(&self, ident: &String) -> Result<&dyn Symbol, AstError> {
+        self.lookup(ident)
+            .ok_or(AstError::SymbolNotFoundError(ident.clone()))
     }
 
     pub fn lookup_const_val(&self, ident: &String) -> Option<i32> {

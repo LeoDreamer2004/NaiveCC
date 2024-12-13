@@ -19,26 +19,29 @@ impl FunctionPass for UnreadCodeElimination {
 impl UnreadCodeElimination {
     fn mark(&mut self, data: &FunctionData) {
         for (&value, value_data) in data.dfg().values() {
-            if let ValueKind::Alloc(_) = value_data.kind() {
-                if let TypeKind::Pointer(ty) = value_data.ty().kind() {
-                    if ty.is_i32() {
-                        let mut can_remove = true;
-                        let mut used = Vec::new();
-                        for u in value_data.used_by() {
-                            used.push(*u);
-                            if let ValueKind::Load(_) = data.dfg().value(*u).kind() {
-                                can_remove = false;
-                                break;
-                            }
-                        }
-                        if can_remove {
-                            self.to_remove.extend(used);
-                            self.to_remove.push(value);
-                        }
-                    }
-                } else {
-                    unreachable!();
+            if !matches!(value_data.kind(), ValueKind::Alloc(_)) {
+                continue;
+            }
+
+            if let TypeKind::Pointer(ty) = value_data.ty().kind() {
+                if !ty.is_i32() {
+                    continue;
                 }
+                let mut can_remove = true;
+                let mut used = Vec::new();
+                for u in value_data.used_by() {
+                    used.push(*u);
+                    if matches!(data.dfg().value(*u).kind(), ValueKind::Load(_)) {
+                        can_remove = false;
+                        break;
+                    }
+                }
+                if can_remove {
+                    self.to_remove.extend(used);
+                    self.to_remove.push(value);
+                }
+            } else {
+                unreachable!()
             }
         }
     }

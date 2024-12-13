@@ -101,7 +101,7 @@ impl GenerateIr for Block {
         if self.block_items.is_empty() {
             return Ok(());
         }
-        
+
         env.ctx.new_block(None, true);
         env.table.enter_scope();
 
@@ -152,21 +152,15 @@ impl GenerateIr for LVal {
             indexes.push(exp.generate_on(env)?.value);
         }
 
-        let symbol = env
-            .table
-            .lookup(&self.ident)
-            .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?;
+        let symbol = env.table.lookup_or(&self.ident)?;
 
         if !symbol.is_single() {
             let addr = symbol.index(&indexes, &mut env.ctx)?;
             Ok(addr)
-        } else if !symbol.is_const() {
-            if indexes.is_empty() {
-                return symbol.get_alloc();
-            }
-            Err(AstError::TypeError("Cannot index a single value!".into()))
+        } else if !indexes.is_empty() {
+            return Err(AstError::TypeError("Cannot index a single value!".into()));
         } else {
-            Err(AstError::TypeError("Constant are not a left value!".into()))
+            return symbol.get_alloc();
         }
     }
 }
@@ -346,10 +340,7 @@ impl GenerateIr for LValAssign {
     type IrTarget = Value;
 
     fn generate_on(&self, env: &mut Environment) -> Result<Value, AstError> {
-        let symbol = env
-            .table
-            .lookup(&self.ident)
-            .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?;
+        let symbol = env.table.lookup_or(&self.ident)?;
 
         if symbol.is_const() {
             return Err(AstError::AssignError(self.ident.clone()));
@@ -623,7 +614,6 @@ impl GenerateIr for UnaryExp {
     fn generate_on(&self, env: &mut Environment) -> Result<ExpResult, AstError> {
         match self {
             UnaryExp::PrimaryExp(primary_exp) => primary_exp.generate_on(env),
-
             UnaryExp::UnaryOpExp(unary_op_exp) => {
                 let exp = unary_op_exp.unary_exp.generate_on(env)?;
                 let zero = env.ctx.local_val().integer(0);
@@ -679,10 +669,7 @@ impl GenerateIr for LValExp {
     type IrTarget = ExpResult;
 
     fn generate_on(&self, env: &mut Environment) -> Result<ExpResult, AstError> {
-        let symbol = env
-            .table
-            .lookup(&self.ident)
-            .ok_or(AstError::SymbolNotFoundError(self.ident.clone()))?;
+        let symbol = env.table.lookup_or(&self.ident)?;
 
         // if the symbol is a const, return the value
         if symbol.is_const() && symbol.is_single() {
@@ -704,18 +691,13 @@ impl GenerateIr for LValExp {
             TypeKind::Pointer(ty) => match ty.kind() {
                 TypeKind::Array(_, _) => {
                     let zero = env.ctx.local_val().integer(0);
-                    let ptr = env.ctx.local_val().get_elem_ptr(alloc, zero);
-                    env.ctx.add_inst(ptr);
-                    ptr
+                    env.ctx.local_val().get_elem_ptr(alloc, zero)
                 }
-                _ => {
-                    let load = env.ctx.local_val().load(alloc);
-                    env.ctx.add_inst(load);
-                    load
-                }
+                _ => env.ctx.local_val().load(alloc),
             },
             _ => unreachable!("LValExp::generate_on: not a pointer type"),
         };
+        env.ctx.add_inst(value);
         Ok(ExpResult::safe(value))
     }
 }

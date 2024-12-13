@@ -52,8 +52,8 @@ pub fn opt_ir(program: Program) -> Program {
     let mut passman = PassManager::new();
     passman.register(Pass::Function(Box::new(DeadBlockElimination::default())));
     passman.register(Pass::Function(Box::new(BlockFlowSimplify::default())));
-    passman.register(Pass::Function(Box::new(CopyBroadcast::default())));
-    passman.register(Pass::Function(Box::new(ConstantsInline::default())));
+    passman.register(Pass::Function(Box::new(CopyPropagation::default())));
+    passman.register(Pass::Function(Box::new(ConstantsFold::default())));
     passman.register(Pass::Function(Box::new(DeadCodeElimination::default())));
     passman.register(Pass::Function(Box::new(CommonSubexpression::default())));
     passman.register(Pass::Function(Box::new(UnreadCodeElimination::default())));

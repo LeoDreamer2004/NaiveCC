@@ -275,7 +275,7 @@ impl AvailableExpressions {
                 }
                 self.ins.insert(bb, in_set);
 
-                // OUT[B] = gen[B] | (IN[B] - kill[B])
+                // OUT[B] = gen[B] U (IN[B] - kill[B])
                 let mut out_set = parser.e_gen(bb).clone();
                 let in_set = self.ins[&bb].clone();
                 let kill_set = parser.e_kill(bb);
