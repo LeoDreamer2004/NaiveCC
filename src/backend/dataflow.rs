@@ -164,7 +164,7 @@ impl UseDefParser {
     }
 }
 
-/// Analyser for live variables.
+/// Analyser for live variables, used for register allocation.
 ///
 /// Read flow from [`FunctionFlowGraph`] and use-def information from [`UseDefParser`].
 #[derive(Debug)]

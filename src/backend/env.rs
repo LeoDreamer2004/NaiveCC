@@ -60,6 +60,7 @@ pub struct Environment<'a> {
     pub table: DiscriptorTable,
     pub sf: StackFrame,
     pub l_gen: IdGenerator<BasicBlock>,
+    pub func_index: usize,
 }
 
 impl<'a> Environment<'a> {
@@ -69,6 +70,7 @@ impl<'a> Environment<'a> {
             table: DiscriptorTable::default(),
             sf: StackFrame::default(),
             l_gen: IdGenerator::new(|e| format!("L{}", e)),
+            func_index: 0,
         }
     }
 

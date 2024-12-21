@@ -1,5 +1,6 @@
 mod algorithm;
-mod dce;
+mod cp;
+mod dre;
 mod helper;
 mod immfix;
 mod jump;
@@ -7,7 +8,8 @@ mod peephole;
 
 use super::program::{AsmGlobal, AsmLocal};
 pub use algorithm::AlgorithmOptimizer;
-pub use dce::DeadCodeOptimizer;
+pub use cp::CopyPropagationOptimizer;
+pub use dre::DeadRegisterOptimizer;
 use helper::OptHelper;
 pub use immfix::ImmFixOptimizer;
 pub use jump::JumpOptimizer;

@@ -43,11 +43,11 @@ fn opt_glb(glb: &mut AsmGlobal) {
     man.add(Optimizer::Local(Box::new(AlgorithmOptimizer::default())));
     man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
     man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
-    man.add(Optimizer::Global(Box::new(DeadCodeOptimizer::default())));
+    man.add(Optimizer::Local(Box::new(CopyPropagationOptimizer::default())));
+    man.add(Optimizer::Global(Box::new(DeadRegisterOptimizer::default())));
     man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
-    man.add(Optimizer::Local(Box::new(AlgorithmOptimizer::default())));
     man.add(Optimizer::Local(Box::new(ImmFixOptimizer::default())));
-    man.run(glb);
+    man.run(glb); 
 }
 
 /// Optimize the assembly code.

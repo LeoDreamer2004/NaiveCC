@@ -13,4 +13,4 @@ pub use cf::ConstantsFold;
 pub use cse::CommonSubexpression;
 pub use dbe::DeadBlockElimination;
 pub use dce::DeadCodeElimination;
-pub use uce::UnreadCodeElimination;
+pub use uce::UnusedCodeElimination;

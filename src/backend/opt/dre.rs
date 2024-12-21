@@ -4,9 +4,9 @@ use super::super::registers::RegisterType;
 use super::GlobalOptimizer;
 
 #[derive(Default)]
-pub struct DeadCodeOptimizer;
+pub struct DeadRegisterOptimizer;
 
-impl GlobalOptimizer for DeadCodeOptimizer {
+impl GlobalOptimizer for DeadRegisterOptimizer {
     fn run(&mut self, asm: &AsmGlobal) -> AsmGlobal {
         let mut parser = UseDefParser::default();
         parser.parse(asm);

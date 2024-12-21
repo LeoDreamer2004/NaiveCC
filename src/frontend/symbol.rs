@@ -159,12 +159,12 @@ pub trait Symbol {
     /// or the symbol is not an array
     fn index(&self, indexes: &Vec<Value>, ctx: &mut Context) -> Result<Value, AstError> {
         if self.is_single() {
-            return Err(AstError::TypeError("Not an array".to_string()));
+            return Err(AstError::TypeError("Not an array".into()));
         }
         let bias = self.get_bias()?;
         if indexes.len() > bias.len() - 1 {
             return Err(AstError::IllegalAccessError(
-                "Array dimensions mismatch".to_string(),
+                "Array dimensions mismatch".into(),
             ));
         }
         let mut ptr = self.get_alloc()?;

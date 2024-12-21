@@ -57,11 +57,13 @@ impl EntityAsmGenerator for Program {
             env.ctx.function = Some(func);
             let func_data = self.func(func);
             // skip declaration
-            if !func_data.layout().entry_bb().is_none() {
+            if func_data.layout().entry_bb().is_some() {
                 let label = original_ident(&func_data.name().to_string());
                 let mut glb = AsmGlobal::new(Section::Text, label);
 
-                let label = format!(".prologue_{}", env.table.new_func_idx());
+                let label = format!(".prologue_{}", env.func_index);
+                env.func_index += 1;
+
                 let mut prologue = env.sf.build_prologue(func_data);
                 prologue.label_mut().replace(label.clone());
                 glb.new_local(prologue);

@@ -2,11 +2,11 @@ use koopa::ir::{Function, FunctionData, TypeKind, Value, ValueKind};
 use koopa::opt::FunctionPass;
 
 #[derive(Default)]
-pub struct UnreadCodeElimination {
+pub struct UnusedCodeElimination {
     to_remove: Vec<Value>,
 }
 
-impl FunctionPass for UnreadCodeElimination {
+impl FunctionPass for UnusedCodeElimination {
     fn run_on(&mut self, _: Function, data: &mut FunctionData) {
         let mut changed = true;
         while changed {
@@ -16,7 +16,7 @@ impl FunctionPass for UnreadCodeElimination {
     }
 }
 
-impl UnreadCodeElimination {
+impl UnusedCodeElimination {
     fn mark(&mut self, data: &FunctionData) {
         for (&value, value_data) in data.dfg().values() {
             if !matches!(value_data.kind(), ValueKind::Alloc(_)) {

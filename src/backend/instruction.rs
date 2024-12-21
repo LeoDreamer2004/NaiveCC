@@ -84,6 +84,112 @@ pub enum Inst {
     Mv(Register, Register),
 }
 
+macro_rules! regs {
+    ($inst:expr) => {
+        match $inst {
+            Inst::Lw(rd, rs, _) => vec![rd, rs],
+            Inst::Sw(rs2, rs1, _) => vec![rs1, rs2],
+            Inst::Add(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Addi(rd, rs, _) => vec![rd, rs],
+            Inst::Beqz(rs, _) => vec![rs],
+            Inst::Bnez(rs, _) => vec![rs],
+            Inst::Sub(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Slt(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Sgt(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::SeqZ(rd, rs) => vec![rd, rs],
+            Inst::SneZ(rd, rs) => vec![rd, rs],
+            Inst::Xor(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Xori(rd, rs, _) => vec![rd, rs],
+            Inst::Or(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Ori(rd, rs, _) => vec![rd, rs],
+            Inst::And(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Andi(rd, rs, _) => vec![rd, rs],
+            Inst::Sll(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Slli(rd, rs, _) => vec![rd, rs],
+            Inst::Srl(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Srli(rd, rs, _) => vec![rd, rs],
+            Inst::Sra(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Srai(rd, rs, _) => vec![rd, rs],
+            Inst::Mul(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Div(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Rem(rd, rs1, rs2) => vec![rd, rs1, rs2],
+            Inst::Li(rd, _) => vec![rd],
+            Inst::La(rd, _) => vec![rd],
+            Inst::Mv(rd, rs) => vec![rd, rs],
+            _ => vec![],
+        }
+    };
+}
+
+macro_rules! dest_reg {
+    ($inst:expr) => {
+        match $inst {
+            Inst::Lw(rd, _, _) => Some(rd),
+            Inst::Add(rd, _, _) => Some(rd),
+            Inst::Addi(rd, _, _) => Some(rd),
+            Inst::Sub(rd, _, _) => Some(rd),
+            Inst::Slt(rd, _, _) => Some(rd),
+            Inst::Sgt(rd, _, _) => Some(rd),
+            Inst::SeqZ(rd, _) => Some(rd),
+            Inst::SneZ(rd, _) => Some(rd),
+            Inst::Xor(rd, _, _) => Some(rd),
+            Inst::Xori(rd, _, _) => Some(rd),
+            Inst::Or(rd, _, _) => Some(rd),
+            Inst::Ori(rd, _, _) => Some(rd),
+            Inst::And(rd, _, _) => Some(rd),
+            Inst::Andi(rd, _, _) => Some(rd),
+            Inst::Sll(rd, _, _) => Some(rd),
+            Inst::Slli(rd, _, _) => Some(rd),
+            Inst::Srl(rd, _, _) => Some(rd),
+            Inst::Srli(rd, _, _) => Some(rd),
+            Inst::Sra(rd, _, _) => Some(rd),
+            Inst::Srai(rd, _, _) => Some(rd),
+            Inst::Mul(rd, _, _) => Some(rd),
+            Inst::Div(rd, _, _) => Some(rd),
+            Inst::Rem(rd, _, _) => Some(rd),
+            Inst::Li(rd, _) => Some(rd),
+            Inst::La(rd, _) => Some(rd),
+            Inst::Mv(rd, _) => Some(rd),
+            _ => None,
+        }
+    };
+}
+
+macro_rules! src_degs {
+    ($inst:expr) => {
+        match $inst {
+            Inst::Lw(_, rs, _) => vec![rs],
+            Inst::Sw(rs2, rs1, _) => vec![rs1, rs2],
+            Inst::Add(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Addi(_, rs, _) => vec![rs],
+            Inst::Beqz(rs, _) => vec![rs],
+            Inst::Bnez(rs, _) => vec![rs],
+            Inst::Sub(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Slt(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Sgt(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::SeqZ(_, rs) => vec![rs],
+            Inst::SneZ(_, rs) => vec![rs],
+            Inst::Xor(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Xori(_, rs, _) => vec![rs],
+            Inst::Or(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Ori(_, rs, _) => vec![rs],
+            Inst::And(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Andi(_, rs, _) => vec![rs],
+            Inst::Sll(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Slli(_, rs, _) => vec![rs],
+            Inst::Srl(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Srli(_, rs, _) => vec![rs],
+            Inst::Sra(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Srai(_, rs, _) => vec![rs],
+            Inst::Mul(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Div(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Rem(_, rs1, rs2) => vec![rs1, rs2],
+            Inst::Mv(_, rs) => vec![rs],
+            _ => vec![],
+        }
+    };
+}
+
 impl Inst {
     /// Write the instruction to the string.
     pub fn dump(&self) -> String {
@@ -130,121 +236,33 @@ impl Inst {
 
     /// Get the registers that the instruction uses.
     pub fn regs_mut(&mut self) -> Vec<&mut Register> {
-        match self {
-            Inst::Nop => vec![],
-            Inst::Placeholder(_) => vec![],
-            Inst::Comment(_) => vec![],
-            Inst::Zero(_) => vec![],
-            Inst::Word(_) => vec![],
-            Inst::Beqz(rs, _) => vec![rs],
-            Inst::Bnez(rs, _) => vec![rs],
-            Inst::J(_) => vec![],
-            Inst::Call(_) => vec![],
-            Inst::Ret => vec![],
-            Inst::Lw(rd, rs, _) => vec![rd, rs],
-            Inst::Sw(rs2, rs1, _) => vec![rs2, rs1],
-            Inst::Add(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Addi(rd, rs, _) => vec![rd, rs],
-            Inst::Sub(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Slt(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Sgt(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::SeqZ(rd, rs) => vec![rd, rs],
-            Inst::SneZ(rd, rs) => vec![rd, rs],
-            Inst::Xor(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Xori(rd, rs, _) => vec![rd, rs],
-            Inst::Or(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Ori(rd, rs, _) => vec![rd, rs],
-            Inst::And(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Andi(rd, rs, _) => vec![rd, rs],
-            Inst::Sll(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Slli(rd, rs, _) => vec![rd, rs],
-            Inst::Srl(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Srli(rd, rs, _) => vec![rd, rs],
-            Inst::Sra(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Srai(rd, rs, _) => vec![rd, rs],
-            Inst::Mul(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Div(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Rem(rd, rs1, rs2) => vec![rd, rs1, rs2],
-            Inst::Li(rd, _) => vec![rd],
-            Inst::La(rd, _) => vec![rd],
-            Inst::Mv(rd, rs) => vec![rd, rs],
-        }
+        regs!(self)
     }
 
     /// Get the registers that the instruction uses.
     pub fn regs(&self) -> Vec<&Register> {
-        let mut regs = self.src_regs();
-        if let Some(rd) = self.dest_reg() {
-            regs.push(rd);
-        }
-        regs
+        regs!(self)
     }
 
     /// Get the destination register of the instruction.
     pub fn dest_reg(&self) -> Option<&Register> {
-        match self {
-            Inst::Lw(rd, _, _) => Some(rd),
-            Inst::Add(rd, _, _) => Some(rd),
-            Inst::Addi(rd, _, _) => Some(rd),
-            Inst::Sub(rd, _, _) => Some(rd),
-            Inst::Slt(rd, _, _) => Some(rd),
-            Inst::Sgt(rd, _, _) => Some(rd),
-            Inst::SeqZ(rd, _) => Some(rd),
-            Inst::SneZ(rd, _) => Some(rd),
-            Inst::Xor(rd, _, _) => Some(rd),
-            Inst::Xori(rd, _, _) => Some(rd),
-            Inst::Or(rd, _, _) => Some(rd),
-            Inst::Ori(rd, _, _) => Some(rd),
-            Inst::And(rd, _, _) => Some(rd),
-            Inst::Andi(rd, _, _) => Some(rd),
-            Inst::Sll(rd, _, _) => Some(rd),
-            Inst::Slli(rd, _, _) => Some(rd),
-            Inst::Srl(rd, _, _) => Some(rd),
-            Inst::Srli(rd, _, _) => Some(rd),
-            Inst::Sra(rd, _, _) => Some(rd),
-            Inst::Srai(rd, _, _) => Some(rd),
-            Inst::Mul(rd, _, _) => Some(rd),
-            Inst::Div(rd, _, _) => Some(rd),
-            Inst::Rem(rd, _, _) => Some(rd),
-            Inst::Li(rd, _) => Some(rd),
-            Inst::La(rd, _) => Some(rd),
-            Inst::Mv(rd, _) => Some(rd),
-            _ => None,
-        }
+        dest_reg!(self)
+    }
+
+    /// Get the destination register of the instruction.
+    #[allow(dead_code)]
+    pub fn dest_reg_mut(&mut self) -> Option<&mut Register> {
+        dest_reg!(self)
     }
 
     /// Get the source registers of the instruction.
     pub fn src_regs(&self) -> Vec<&Register> {
-        match self {
-            Inst::Lw(_, rs, _) => vec![rs],
-            Inst::Sw(rs2, rs1, _) => vec![rs1, rs2],
-            Inst::Add(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Addi(_, rs, _) => vec![rs],
-            Inst::Beqz(rs, _) => vec![rs],
-            Inst::Bnez(rs, _) => vec![rs],
-            Inst::Sub(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Slt(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Sgt(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::SeqZ(_, rs) => vec![rs],
-            Inst::SneZ(_, rs) => vec![rs],
-            Inst::Xor(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Xori(_, rs, _) => vec![rs],
-            Inst::Or(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Ori(_, rs, _) => vec![rs],
-            Inst::And(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Andi(_, rs, _) => vec![rs],
-            Inst::Sll(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Slli(_, rs, _) => vec![rs],
-            Inst::Srl(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Srli(_, rs, _) => vec![rs],
-            Inst::Sra(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Srai(_, rs, _) => vec![rs],
-            Inst::Mul(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Div(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Rem(_, rs1, rs2) => vec![rs1, rs2],
-            Inst::Mv(_, rs) => vec![rs],
-            _ => vec![],
-        }
+        src_degs!(self)
+    }
+
+    /// Get the source registers of the instruction.
+    pub fn src_regs_mut(&mut self) -> Vec<&mut Register> {
+        src_degs!(self)
     }
 }
 

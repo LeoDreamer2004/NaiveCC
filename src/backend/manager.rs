@@ -36,12 +36,20 @@ struct PointerInfo {
     refer: Option<Stack>,
 }
 
+impl PointerInfo {
+    fn new(desc: Descriptor) -> Self {
+        Self {
+            descriptor: desc,
+            refer: None,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct DiscriptorTable {
     map: HashMap<Pointer, PointerInfo>,
     glb_map: HashMap<Pointer, PointerInfo>,
     reg_index: usize,
-    func_index: usize,
 }
 
 /// A pack of information, including the register,
@@ -75,23 +83,11 @@ impl InfoPack {
 
 impl DiscriptorTable {
     pub fn add_desc(&mut self, ptr: Pointer, desc: Descriptor) {
-        self.map.insert(
-            ptr,
-            PointerInfo {
-                descriptor: desc,
-                refer: None,
-            },
-        );
+        self.map.insert(ptr, PointerInfo::new(desc));
     }
 
     pub fn add_glb_desc(&mut self, ptr: Pointer, desc: Descriptor) {
-        self.glb_map.insert(
-            ptr,
-            PointerInfo {
-                descriptor: desc,
-                refer: None,
-            },
-        );
+        self.glb_map.insert(ptr, PointerInfo::new(desc));
     }
 
     pub fn desc(&self, ptr: Pointer) -> Result<&Descriptor, AsmError> {
@@ -116,11 +112,6 @@ impl DiscriptorTable {
         self.map
             .get_mut(&ptr)
             .ok_or(AsmError::NullLocation(format!("{ptr:?}")))
-    }
-
-    pub fn new_func_idx(&mut self) -> usize {
-        self.func_index += 1;
-        self.func_index
     }
 
     pub fn end_func(&mut self) {
