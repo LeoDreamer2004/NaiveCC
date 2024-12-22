@@ -180,26 +180,20 @@ pub struct EGenKillParser {
 
 impl EGenKillParser {
     pub fn update(inst: Value, availables: &mut HashSet<Value>, func_data: &FunctionData) {
-        if func_data
-            .dfg()
-            .value(inst)
-            .kind()
-            .value_uses()
-            .filter(|u| !func_data.dfg().values().contains_key(u))
-            .count()
-            > 0
-        {
-            return;
-        }
-
-        if !func_data.dfg().value(inst).ty().is_unit() {
+        let data = func_data.dfg().value(inst);
+        if !data.ty().is_unit() {
             availables.insert(inst);
-        } else if let ValueKind::Store(store) = func_data.dfg().value(inst).kind() {
-            if !func_data.dfg().values().contains_key(&store.dest()) {
-                return;
-            }
-            let used_by = func_data.dfg().value(store.dest()).used_by();
-            availables.retain(|s| !used_by.contains(s));
+        } else if let ValueKind::Store(store) = data.kind() {
+            availables.retain(|s| {
+                func_data
+                    .dfg()
+                    .value(*s)
+                    .kind()
+                    .value_uses()
+                    .filter(|x| *x == store.dest())
+                    .count()
+                    == 0
+            });
         }
     }
 
@@ -223,10 +217,25 @@ impl EGenKillParser {
             for (&inst, _) in node.insts() {
                 Self::update(inst, gens, func_data);
                 if let ValueKind::Store(store) = func_data.dfg().value(inst).kind() {
-                    if func_data.dfg().values().contains_key(&store.dest()) {
-                        let used_by = func_data.dfg().value(store.dest()).used_by();
-                        self.e_kill.get_mut(&bb).unwrap().extend(used_by);
-                    }
+                    let used_by = if func_data.dfg().values().contains_key(&store.dest()) {
+                        func_data.dfg().value(store.dest()).used_by().clone()
+                    } else {
+                        func_data
+                            .dfg()
+                            .values()
+                            .iter()
+                            .filter_map(|(v, data)| {
+                                (data
+                                    .kind()
+                                    .value_uses()
+                                    .filter(|x| *x == store.dest())
+                                    .count()
+                                    != 0)
+                                    .then_some(*v)
+                            })
+                            .collect()
+                    };
+                    self.e_kill.get_mut(&bb).unwrap().extend(used_by);
                 }
             }
         }

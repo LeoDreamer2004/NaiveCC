@@ -75,7 +75,11 @@ impl GenerateIr for FuncDef {
         self.block.generate_on(env)?;
         env.table.exit_scope();
 
-        let ret = env.ctx.local_val().ret(None);
+        let default_ret = match self.func_type {
+            FuncType::Void => None,
+            FuncType::BType(BType::Int) => Some(env.ctx.local_val().integer(0)),
+        };
+        let ret = env.ctx.local_val().ret(default_ret);
         env.ctx.add_inst(ret);
         env.ctx.block = None;
         env.ctx.func = None;
