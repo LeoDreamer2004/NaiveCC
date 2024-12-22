@@ -43,14 +43,14 @@ fn main() -> Result<(), Error> {
 
     // frontend
     let mut ir = build_ir(ast).map_err(Error::Ir)?;
-    // ir = opt_ir(ir);
+    ir = opt_ir(ir);
 
     match args.mode {
         Mode::Koopa => emit_ir(&mut ir, args.output).map_err(Error::Io)?,
         _ => {
             // backend
             let mut asm = build_asm(ir).map_err(Error::Asm)?;
-            // asm = opt_asm(asm);
+            asm = opt_asm(asm);
             emit_asm(asm, args.output).map_err(Error::Io)?
         }
     }
