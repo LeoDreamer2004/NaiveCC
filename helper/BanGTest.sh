@@ -1,0 +1,1 @@
+autotest -riscv -s perf /root/compiler
