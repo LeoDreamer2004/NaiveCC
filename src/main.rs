@@ -1,10 +1,10 @@
-//! # Naive Compiler
+//! # NaiveCC
 //! This is a naive compiler for the SysY language, which is a subset of C language.
 //! Designed for Compiler Principles course (2024 autumn) in Peking University.
 //! The compiler is implemented in Rust, which can generate RISC-V assembly code.
 //!
 //! Handin Repository: https://gitlab.eduxiji.net/pku2200010825/compiler2024
-//! Open Source Repository: https://github.com/LeoDreamer2004/Naive-Compiler
+//! Open Source Repository: https://github.com/LeoDreamer2004/NaiveCC
 //! Still under development. Welcome to report bugs and contribute.
 //! License: MIT
 
