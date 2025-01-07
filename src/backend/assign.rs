@@ -1,9 +1,9 @@
 //! Register assignment module.
 
+use super::address::Stack;
 use super::dataflow::{GlobalFLowGraph, LiveVariableAnalyser, UseDefParser};
 use super::frames::StackFrame;
 use super::instruction::Inst;
-use super::address::Stack;
 use super::program::{AsmGlobal, AsmLocal};
 use super::registers::{FakeRegister, Register, RegisterType};
 use super::INT_SIZE;
@@ -134,17 +134,8 @@ impl RegisterInterferenceGraph {
                 for reg in inst.src_regs() {
                     active_set.insert(*reg);
                 }
-                self.add_edges_in_set(&active_set);
             }
             assert_eq!(&active_set, analyser.ins(&l));
-        }
-    }
-
-    fn add_edges_in_set(&mut self, set: &HashSet<Register>) {
-        for reg1 in set {
-            for reg2 in set {
-                self.add_edge(reg1, reg2);
-            }
         }
     }
 
