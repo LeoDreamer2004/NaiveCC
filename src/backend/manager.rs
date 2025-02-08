@@ -46,7 +46,7 @@ impl PointerInfo {
 }
 
 #[derive(Debug, Default)]
-pub struct DiscriptorTable {
+pub struct DescriptorTable {
     map: HashMap<Pointer, PointerInfo>,
     glb_map: HashMap<Pointer, PointerInfo>,
     reg_index: usize,
@@ -81,7 +81,7 @@ impl InfoPack {
     }
 }
 
-impl DiscriptorTable {
+impl DescriptorTable {
     pub fn add_desc(&mut self, ptr: Pointer, desc: Descriptor) {
         self.map.insert(ptr, PointerInfo::new(desc));
     }
@@ -160,9 +160,6 @@ impl DiscriptorTable {
 
         match self.desc(dest)? {
             Descriptor::Register(reg) => {
-                if *reg == rs {
-                    return Ok(());
-                }
                 insts.push(Inst::Mv(*reg, rs));
             }
             Descriptor::Stack(stack) => {
@@ -184,10 +181,8 @@ impl DiscriptorTable {
         dest.refer = self.refer(src)?.clone();
         match self.desc(src)? {
             Descriptor::Register(reg) => {
-                if *reg != dest_reg {
-                    dest.insts.push(Inst::Mv(dest_reg, *reg));
-                    dest.reg = dest_reg;
-                }
+                dest.insts.push(Inst::Mv(dest_reg, *reg));
+                dest.reg = dest_reg;
             }
             Descriptor::Stack(stack) => {
                 dest.insts
