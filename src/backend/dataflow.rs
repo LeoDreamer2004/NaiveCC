@@ -19,9 +19,6 @@ impl GlobalFLowGraph {
     ///
     /// # Arguments
     /// func_data: The function data
-    ///
-    /// # Returns
-    /// The flow graph, otherwise None (the function is a declaration)
     pub fn build(&mut self, asm: &AsmGlobal) {
         self.all_labels = asm.local_labels();
         self.edges.clear();
