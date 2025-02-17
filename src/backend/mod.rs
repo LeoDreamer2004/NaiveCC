@@ -1,7 +1,7 @@
+mod address;
 mod assign;
 mod constants;
 mod dataflow;
-mod address;
 mod env;
 mod frames;
 mod generate;
@@ -29,8 +29,10 @@ pub enum AsmError {
     StackOverflow,
 }
 
+type AsmResult<T> = Result<T, AsmError>;
+
 /// Generate assembly code for the given IR program.
-pub fn build_asm(program: Program) -> Result<AsmProgram, AsmError> {
+pub fn build_asm(program: Program) -> AsmResult<AsmProgram> {
     let mut asm = AsmProgram::new();
     let mut env = Environment::new(&program);
     program.generate_on(&mut env, &mut asm)?;
@@ -43,11 +45,15 @@ fn opt_glb(glb: &mut AsmGlobal) {
     man.add(Optimizer::Local(Box::new(AlgorithmOptimizer::default())));
     man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
     man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
-    man.add(Optimizer::Local(Box::new(CopyPropagationOptimizer::default())));
-    man.add(Optimizer::Global(Box::new(DeadRegisterOptimizer::default())));
+    man.add(Optimizer::Local(Box::new(
+        CopyPropagationOptimizer::default(),
+    )));
+    man.add(Optimizer::Global(
+        Box::new(DeadRegisterOptimizer::default()),
+    ));
     man.add(Optimizer::Local(Box::new(PeepholeOptimizer::default())));
     man.add(Optimizer::Local(Box::new(ImmFixOptimizer::default())));
-    man.run(glb); 
+    man.run(glb);
 }
 
 /// Optimize the assembly code.

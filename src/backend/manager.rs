@@ -1,13 +1,13 @@
-use super::address::{Data, Descriptor, Stack, ToDescriptor};
-use super::instruction::*;
+use super::address::{Data, Descriptor, Stack};
 use super::program::AsmLocal;
 use super::registers::*;
+use super::{instruction::*, AsmResult};
 use super::{AsmError, INT_SIZE, MAX_PARAM_REG};
 use koopa::ir::entities::ValueData;
 use koopa::ir::{FunctionData, ValueKind};
 use std::collections::HashMap;
 
-/// Pointer to the data, also the key of the [`DiscriptorTable`].
+/// Pointer to the data, also the key of the [`DescriptorTable`].
 pub type Pointer = *const ValueData;
 
 /// Basic element in an instruction, including immediate value and register.
@@ -29,14 +29,14 @@ impl AsmElement {
 }
 
 #[derive(Debug, Clone)]
-struct PointerInfo {
+struct DataStatus {
     /// where the data is stored
     descriptor: Descriptor,
     /// The reference what the data stored
     refer: Option<Stack>,
 }
 
-impl PointerInfo {
+impl DataStatus {
     fn new(desc: Descriptor) -> Self {
         Self {
             descriptor: desc,
@@ -47,21 +47,21 @@ impl PointerInfo {
 
 #[derive(Debug, Default)]
 pub struct DescriptorTable {
-    map: HashMap<Pointer, PointerInfo>,
-    glb_map: HashMap<Pointer, PointerInfo>,
+    map: HashMap<Pointer, DataStatus>,
+    glb_map: HashMap<Pointer, DataStatus>,
     reg_index: usize,
 }
 
 /// A pack of information, including the register,
 /// (optional) address reference, and cached instructions.
 #[derive(Debug, Clone)]
-pub struct InfoPack {
+pub struct WrapperPack {
     pub reg: Register,
     refer: Option<Stack>,
     insts: Vec<Inst>,
 }
 
-impl InfoPack {
+impl WrapperPack {
     pub fn new(reg: Register) -> Self {
         Self {
             reg,
@@ -76,39 +76,39 @@ impl InfoPack {
     }
 
     /// Merge the cached instructions to another pack.
-    pub fn merge_into(self, other: &mut InfoPack) {
+    pub fn merge_into(self, other: &mut WrapperPack) {
         other.insts.extend(self.insts);
     }
 }
 
 impl DescriptorTable {
     pub fn add_desc(&mut self, ptr: Pointer, desc: Descriptor) {
-        self.map.insert(ptr, PointerInfo::new(desc));
+        self.map.insert(ptr, DataStatus::new(desc));
     }
 
     pub fn add_glb_desc(&mut self, ptr: Pointer, desc: Descriptor) {
-        self.glb_map.insert(ptr, PointerInfo::new(desc));
+        self.glb_map.insert(ptr, DataStatus::new(desc));
     }
 
-    pub fn desc(&self, ptr: Pointer) -> Result<&Descriptor, AsmError> {
-        self.info(ptr).map(|info| &info.descriptor)
+    pub fn desc(&self, ptr: Pointer) -> AsmResult<&Descriptor> {
+        self.status(ptr).map(|status| &status.descriptor)
     }
 
-    pub fn refer(&self, ptr: Pointer) -> Result<&Option<Stack>, AsmError> {
-        self.info(ptr).map(|info| &info.refer)
+    pub fn refer(&self, ptr: Pointer) -> AsmResult<&Option<Stack>> {
+        self.status(ptr).map(|status| &status.refer)
     }
 
-    pub fn refer_mut(&mut self, ptr: Pointer) -> Result<&mut Option<Stack>, AsmError> {
-        self.info_mut(ptr).map(|info| &mut info.refer)
+    pub fn refer_mut(&mut self, ptr: Pointer) -> AsmResult<&mut Option<Stack>> {
+        self.status_mut(ptr).map(|status| &mut status.refer)
     }
 
-    fn info(&self, ptr: Pointer) -> Result<&PointerInfo, AsmError> {
+    fn status(&self, ptr: Pointer) -> AsmResult<&DataStatus> {
         self.map
             .get(&ptr)
             .ok_or(AsmError::NullLocation(format!("{ptr:?}")))
     }
 
-    fn info_mut(&mut self, ptr: Pointer) -> Result<&mut PointerInfo, AsmError> {
+    fn status_mut(&mut self, ptr: Pointer) -> AsmResult<&mut DataStatus> {
         self.map
             .get_mut(&ptr)
             .ok_or(AsmError::NullLocation(format!("{ptr:?}")))
@@ -119,7 +119,7 @@ impl DescriptorTable {
     }
 
     pub fn global_new(&mut self, ptr: Pointer, label: Label) {
-        let desc = Data { label, offset: 0 }.to_desc();
+        let desc: Descriptor = Data { label, offset: 0 }.into();
         self.add_desc(ptr, desc.clone());
         self.add_glb_desc(ptr, desc);
     }
@@ -131,17 +131,17 @@ impl DescriptorTable {
 
     pub fn new_val(&mut self, ptr: Pointer) -> Register {
         let reg = self.new_reg();
-        self.add_desc(ptr, reg.to_desc());
+        self.add_desc(ptr, reg.into());
         reg
     }
 
     pub fn new_val_with_src(
         &mut self,
         ptr: Pointer,
-        src: InfoPack,
+        src: WrapperPack,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
-        let address = src.reg.to_desc();
+    ) -> AsmResult<()> {
+        let address = src.reg.into();
         self.add_desc(ptr, address);
         self.save_val_to(ptr, src, asm)
     }
@@ -150,9 +150,9 @@ impl DescriptorTable {
     pub fn save_val_to(
         &mut self,
         dest: Pointer,
-        src: InfoPack,
+        src: WrapperPack,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let rs = src.reg;
         *self.refer_mut(dest)? = src.refer.clone();
         src.write_on(asm);
@@ -176,7 +176,7 @@ impl DescriptorTable {
     }
 
     /// Load the data from the address of the src to the register.
-    pub fn load_val_to(&mut self, src: Pointer, dest: &mut InfoPack) -> Result<(), AsmError> {
+    pub fn load_val_to(&mut self, src: Pointer, dest: &mut WrapperPack) -> AsmResult<()> {
         let dest_reg = dest.reg;
         dest.refer = self.refer(src)?.clone();
         match self.desc(src)? {
@@ -198,14 +198,14 @@ impl DescriptorTable {
         Ok(())
     }
 
-    pub fn load_imm_to(&mut self, imm: i32, dest: &mut InfoPack) -> Result<(), AsmError> {
+    pub fn load_imm_to(&mut self, imm: i32, dest: &mut WrapperPack) -> AsmResult<()> {
         // We never reuse immediate, only load it to the register.
         // Do those later in optimization.
         dest.insts.push(Inst::Li(dest.reg, imm));
         Ok(())
     }
 
-    pub fn load_to(&mut self, element: &AsmElement, dest: &mut InfoPack) -> Result<(), AsmError> {
+    pub fn load_to(&mut self, element: &AsmElement, dest: &mut WrapperPack) -> AsmResult<()> {
         match element {
             AsmElement::Local(ptr) => self.load_val_to(*ptr, dest),
             AsmElement::Imm(imm) => self.load_imm_to(*imm, dest),
@@ -213,17 +213,17 @@ impl DescriptorTable {
     }
 
     /// Build a reference to the stack, and save the address to the register.
-    pub fn load_ref_to(&mut self, stack: Stack, dest: &mut InfoPack) {
+    pub fn load_ref_to(&mut self, stack: Stack, dest: &mut WrapperPack) {
         let reg = dest.reg;
         dest.refer = Some(stack.clone());
         dest.insts.push(Inst::Addi(reg, stack.base, stack.offset));
     }
 
     /// Load the data from the address of the src to the register.
-    pub fn load_deref_to(&mut self, src: InfoPack, dest: &mut InfoPack) {
+    pub fn load_deref_to(&mut self, src: WrapperPack, dest: &mut WrapperPack) {
         if let Some(stack) = dest.refer.clone() {
-            for (_, info) in &self.map {
-                if info.refer == dest.refer {
+            for (_, status) in &self.map {
+                if status.refer == dest.refer {
                     dest.insts = vec![Inst::Lw(dest.reg, stack.base, stack.offset)];
                     return;
                 }
@@ -233,7 +233,7 @@ impl DescriptorTable {
     }
 
     /// Save the data in the register to the address of the dest.
-    pub fn save_to_deref(&mut self, src: InfoPack, dest: InfoPack, asm: &mut AsmLocal) {
+    pub fn save_to_deref(&mut self, src: WrapperPack, dest: WrapperPack, asm: &mut AsmLocal) {
         let rs1 = src.reg;
         let rs2 = dest.reg;
         src.write_on(asm);
@@ -251,18 +251,18 @@ impl DescriptorTable {
 
     pub fn add_bias(
         &mut self,
-        pack: &mut InfoPack,
+        pack: &mut WrapperPack,
         bias: &AsmElement,
         unit_size: usize,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let reg = pack.reg;
         match bias {
             AsmElement::Local(ptr) => {
                 pack.refer = None;
-                let mut p = InfoPack::new(FREE_REG);
+                let mut p = WrapperPack::new(FREE_REG);
                 self.load_val_to(ptr.clone(), &mut p)?;
                 p.merge_into(pack);
-                let mut p = InfoPack::new(self.new_reg());
+                let mut p = WrapperPack::new(self.new_reg());
                 self.load_imm_to(unit_size as i32, &mut p)?;
                 let unit = p.reg;
                 p.merge_into(pack);
@@ -282,10 +282,10 @@ impl DescriptorTable {
 
     fn param_desc(index: usize) -> Descriptor {
         if index < MAX_PARAM_REG {
-            RegisterType::Arg.all()[index].to_desc()
+            RegisterType::Arg.all()[index].into()
         } else {
             let offset = ((index - MAX_PARAM_REG) * INT_SIZE) as i32;
-            Stack { base: SP, offset }.to_desc()
+            Stack { base: SP, offset }.into()
         }
     }
 
@@ -293,7 +293,7 @@ impl DescriptorTable {
         &mut self,
         func_data: &FunctionData,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let mut max_args = 0;
         for (_, data) in func_data.dfg().values() {
             if let ValueKind::Call(call) = data.kind() {
@@ -305,18 +305,18 @@ impl DescriptorTable {
             let descriptor = match Self::param_desc(index) {
                 Descriptor::Register(reg) => {
                     if index >= max_args {
-                        reg.to_desc()
+                        reg.into()
                     } else {
                         // may be covered, use a new register
                         let real = self.new_reg();
                         let inst = Inst::Mv(real, reg);
                         asm.insts_mut().push(inst);
-                        real.to_desc()
+                        real.into()
                     }
                 }
                 Descriptor::Stack(stack) => {
                     let offset = stack.offset;
-                    Stack { base: FP, offset }.to_desc()
+                    Stack { base: FP, offset }.into()
                 }
                 Descriptor::Data(_) => unreachable!("Function parameter cannot be saved in .data"),
             };
@@ -332,16 +332,16 @@ impl DescriptorTable {
         index: usize,
         param: Pointer,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let e = AsmElement::from(param);
         match Self::param_desc(index) {
             Descriptor::Register(reg) => {
-                let mut pack = InfoPack::new(reg);
+                let mut pack = WrapperPack::new(reg);
                 self.load_to(&e, &mut pack)?;
                 pack.write_on(asm);
             }
             Descriptor::Stack(stack) => {
-                let mut pack = InfoPack::new(FREE_REG);
+                let mut pack = WrapperPack::new(FREE_REG);
                 self.load_to(&e, &mut pack)?;
                 pack.write_on(asm);
                 asm.insts_mut()

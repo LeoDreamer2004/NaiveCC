@@ -1,11 +1,10 @@
 //! Environment for generating IR
 
+use super::loops::LoopStack;
+use super::symbol::SymbolTable;
 use koopa::ir::builder::{GlobalBuilder, LocalBuilder};
 use koopa::ir::builder_traits::*;
 use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, Value, ValueKind};
-
-use super::loops::LoopStack;
-use super::symbol::SymbolTable;
 
 /*********************  Utils  *********************/
 

@@ -125,7 +125,7 @@ pub enum Descriptor {
 
 ```rust
 pub trait Eval<T> {
-    fn eval(&self, table: &SymbolTable) -> Result<T, AstError>;
+    fn eval(&self, table: &SymbolTable) -> AstResult<T>;
 }
 ```
 
@@ -200,17 +200,14 @@ int a = f() || g();
 
 数组的参数传递是通过指针来实现的，也就是传入的是数组的首地址。
 
-考虑到符号表分析要考虑全局/局部，变量/常量，单元素/数组，有八种不同的组合，生成代码过于冗长。因此我们对符号表项进行了抽象，定义了 `SymbolItem` 结构体，用于表示符号表中的一个条目，其内包含一个符号，要求实现 `Symbol` Trait。
+考虑到符号表分析要考虑全局/局部，变量/常量，单元素/数组，有八种不同的组合，生成代码过于冗长。因此我们对符号表项进行了抽象，定义了 `TableItem` 结构体，用于表示符号表中的一个条目，其内通过智能指针 `Rc` 和 `RefCell` 包含一个符号，要求实现 `Symbol` Trait。
 
 ```rust
-pub enum SymbolItem {
-    Var(VarSymbol), // 变量
-    VarArray(VarArraySymbol), // 数组
-    Const(ConstSymbol), // 常量
-    ConstArray(ConstArraySymbol), // 常量数组
-    FParamArray(FParamArraySymbol), // 函数参数数组
-    ScopeSeparator, // 作用域分隔符
-}
+pub struct VarSymbol; // 变量
+pub struct VarArraySymbol; // 数组
+pub struct ConstSymbol; // 常量
+pub struct ConstArraySymbol; // 常量数组
+pub struct FParamArraySymbol; // 函数参数数组
 ```
 
 我们在 `Symbol` Trait 实现了一系列方法，例如获取是否是数组、对符号取索引等等，在 `generate` 中就可以直接调用这些方法。

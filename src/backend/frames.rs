@@ -2,7 +2,7 @@ use super::address::Stack;
 use super::instruction::*;
 use super::program::{AsmGlobal, AsmLocal};
 use super::registers::*;
-use super::{AsmError, INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
+use super::{AsmError, AsmResult, INT_SIZE, MAX_PARAM_REG, MAX_STACK_SIZE};
 use koopa::ir::{FunctionData, ValueKind};
 use std::cmp::max;
 
@@ -54,7 +54,7 @@ impl StackFrame {
     }
 
     /// Allocate a new memory in the stack.
-    pub fn malloc(&mut self, size: usize) -> Result<Stack, AsmError> {
+    pub fn malloc(&mut self, size: usize) -> AsmResult<Stack> {
         let offset = self.bottom_size() as i32;
         let address = Stack { base: SP, offset };
         self.var_size += size;
@@ -98,7 +98,7 @@ impl StackFrame {
     /// In this compilation, there maybe not only one epilogue.
     ///
     /// Note: The epilogue is not complete until the end_fill is called.
-    pub fn build_epilogue(&mut self, asm: &mut AsmLocal) -> Result<(), AsmError> {
+    pub fn build_epilogue(&mut self, asm: &mut AsmLocal) -> AsmResult<()> {
         // read all "call" instructions in the function
         let insts = asm.insts_mut();
         insts.push(Inst::Comment("-- epilogue".to_string()));
@@ -115,7 +115,7 @@ impl StackFrame {
     /// End the frame and fill the prologue and epilogue.
     ///
     /// When this function is called, the frame is closed and the stack is ready to use.
-    pub fn end_fill(&mut self, asm: &mut AsmGlobal) -> Result<(), AsmError> {
+    pub fn end_fill(&mut self, asm: &mut AsmGlobal) -> AsmResult<()> {
         let size = self.tot_size() as i32;
         if size > MAX_STACK_SIZE as i32 {
             return Err(AsmError::StackOverflow);

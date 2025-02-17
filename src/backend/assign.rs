@@ -20,6 +20,7 @@ pub struct RegisterAssigner;
 /// This dispatcher is used to dispatch the registers for the values.
 impl RegisterAssigner {
     pub fn assign(&mut self, asm: &mut AsmGlobal, sf: &mut StackFrame) {
+        let mut ok = false;
         loop {
             let mut flow = GlobalFLowGraph::default();
             flow.build(asm);
@@ -29,20 +30,13 @@ impl RegisterAssigner {
             analyser.analyse(&parser);
             let mut graph = RegisterInterferenceGraph::default();
             graph.build(asm, &analyser);
-            let mut allocator = MemoryAllocator::default();
-            let ok = allocator.alloc(asm, sf, &graph);
             if ok {
-                let mut flow = GlobalFLowGraph::default();
-                flow.build(asm);
-                let mut parser = UseDefParser::default();
-                parser.parse(asm);
-                let mut analyser = LiveVariableAnalyser::new(flow);
-                analyser.analyse(&parser);
-                let mut graph = RegisterInterferenceGraph::default();
-                graph.build(asm, &analyser);
                 let mut writer = RegisterRewriter::new_on(graph);
                 writer.write(asm, sf, analyser);
                 break;
+            } else {
+                let mut allocator = MemoryAllocator::default();
+                ok = allocator.alloc(asm, sf, &graph);
             }
         }
     }

@@ -1,8 +1,8 @@
 //! Backend environment.
 
 use super::frames::StackFrame;
-use super::manager::{AsmElement, InfoPack, Pointer, DescriptorTable};
-use super::AsmError;
+use super::manager::{AsmElement, DescriptorTable, Pointer, WrapperPack};
+use super::AsmResult;
 use crate::utils::namer::IdGenerator;
 use koopa::ir::entities::ValueData;
 use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, Value};
@@ -74,20 +74,20 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn new_pack(&mut self, value: Value) -> Result<InfoPack, AsmError> {
-        let e = value.into_element(&self.ctx);
-        let mut pack = InfoPack::new(self.table.new_reg());
+    pub fn new_pack(&mut self, value: Value) -> AsmResult<WrapperPack> {
+        let e = value.into_elem(&self.ctx);
+        let mut pack = WrapperPack::new(self.table.new_reg());
         self.table.load_to(&e, &mut pack)?;
         Ok(pack)
     }
 }
 
 pub trait IntoElement {
-    fn into_element(self, ctx: &Context) -> AsmElement;
+    fn into_elem(self, ctx: &Context) -> AsmElement;
 }
 
 impl IntoElement for Value {
-    fn into_element(self, ctx: &Context) -> AsmElement {
+    fn into_elem(self, ctx: &Context) -> AsmElement {
         let data = ctx.to_ptr(self);
         AsmElement::from(data)
     }

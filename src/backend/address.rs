@@ -27,24 +27,20 @@ pub enum Descriptor {
     Data(Data),
 }
 
-pub trait ToDescriptor {
-    fn to_desc(self) -> Descriptor;
-}
-
-impl ToDescriptor for Register {
-    fn to_desc(self) -> Descriptor {
+impl Into<Descriptor> for Register {
+    fn into(self) -> Descriptor {
         Descriptor::Register(self)
     }
 }
 
-impl ToDescriptor for Stack {
-    fn to_desc(self) -> Descriptor {
+impl Into<Descriptor> for Stack {
+    fn into(self) -> Descriptor {
         Descriptor::Stack(self)
     }
 }
 
-impl ToDescriptor for Data {
-    fn to_desc(self) -> Descriptor {
+impl Into<Descriptor> for Data {
+    fn into(self) -> Descriptor {
         Descriptor::Data(self)
     }
 }

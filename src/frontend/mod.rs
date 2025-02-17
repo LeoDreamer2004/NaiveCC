@@ -41,6 +41,8 @@ pub enum AstError {
     UnknownError(String),
 }
 
+pub type AstResult<T> = Result<T, AstError>;
+
 pub fn build_ir(ast: CompUnit) -> Result<Program, AstError> {
     let mut env = Environment::default();
     ast.generate_on(&mut env)?;

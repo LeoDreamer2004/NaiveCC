@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use super::super::dataflow::{AvailableExpressions, EGenKillParser, FunctionFlowGraph};
 use super::util::ValueReplace;
 use koopa::ir::{BasicBlock, Function, FunctionData, Value, ValueKind};
 use koopa::opt::FunctionPass;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct CommonSubexpression {
@@ -46,7 +45,6 @@ impl CommonSubexpression {
             func_data.replace_value(from, to);
         }
     }
-
 
     fn scan(&self, func_data: &FunctionData) -> Option<(BasicBlock, Value, Value)> {
         let mut parser = EGenKillParser::default();

@@ -3,9 +3,9 @@
 use super::assign::RegisterAssigner;
 use super::env::{Environment, IntoElement};
 use super::instruction::*;
-use super::manager::InfoPack;
+use super::manager::WrapperPack;
 use super::program::{AsmGlobal, AsmLocal, AsmProgram, Section};
-use super::{opt_glb, registers, AsmError, INT_SIZE};
+use super::{opt_glb, registers, AsmResult, INT_SIZE};
 use crate::utils::namer::original_ident;
 use koopa::ir::entities::ValueData;
 use koopa::ir::values::*;
@@ -27,14 +27,13 @@ pub trait EntityAsmGenerator {
     ///
     /// # Errors
     /// AsmError is returned if the generation fails.
-    fn generate_on(&self, env: &mut Environment, asm: &mut Self::AsmTarget)
-        -> Result<(), AsmError>;
+    fn generate_on(&self, env: &mut Environment, asm: &mut Self::AsmTarget) -> AsmResult<()>;
 }
 
 impl EntityAsmGenerator for Program {
     type AsmTarget = AsmProgram;
 
-    fn generate_on(&self, env: &mut Environment, asm: &mut AsmProgram) -> Result<(), AsmError> {
+    fn generate_on(&self, env: &mut Environment, asm: &mut AsmProgram) -> AsmResult<()> {
         // global data
         for &g_value in self.inst_layout() {
             let g_data = self.borrow_value(g_value);
@@ -116,7 +115,7 @@ fn generate_global_data(data: Ref<ValueData>, program: &Program, asm: &mut AsmLo
 impl EntityAsmGenerator for FunctionData {
     type AsmTarget = AsmGlobal;
 
-    fn generate_on(&self, env: &mut Environment, asm: &mut AsmGlobal) -> Result<(), AsmError> {
+    fn generate_on(&self, env: &mut Environment, asm: &mut AsmGlobal) -> AsmResult<()> {
         // load params first
         let mut param = AsmLocal::new(Some(".params".into()));
         env.table.load_func_param(self, &mut param)?;
@@ -141,7 +140,7 @@ impl EntityAsmGenerator for FunctionData {
 impl EntityAsmGenerator for ValueData {
     type AsmTarget = AsmLocal;
 
-    fn generate_on(&self, env: &mut Environment, asm: &mut AsmLocal) -> Result<(), AsmError> {
+    fn generate_on(&self, env: &mut Environment, asm: &mut AsmLocal) -> AsmResult<()> {
         match self.kind() {
             ValueKind::Alloc(alloc) => alloc.generate_on(self, env, asm),
             ValueKind::Store(store) => store.generate_on(self, env, asm),
@@ -176,7 +175,7 @@ trait ValueAsmGenerator {
         ret_data: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError>;
+    ) -> AsmResult<()>;
 }
 
 impl ValueAsmGenerator for Alloc {
@@ -185,7 +184,7 @@ impl ValueAsmGenerator for Alloc {
         ret_data: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let size = match ret_data.ty().kind() {
             TypeKind::Pointer(p) => p.size(),
             _ => unreachable!("Alloc type should always be a pointer"),
@@ -194,7 +193,7 @@ impl ValueAsmGenerator for Alloc {
         let stack = env.sf.malloc(size)?;
         // new value "self" as a pointer
         let reg = env.table.new_reg();
-        let mut pack = InfoPack::new(reg);
+        let mut pack = WrapperPack::new(reg);
         env.table.load_ref_to(stack, &mut pack);
         env.table.new_val_with_src(ret_data, pack, asm)
     }
@@ -206,7 +205,7 @@ impl ValueAsmGenerator for Store {
         _: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let src = env.new_pack(self.value())?;
         let dest = env.new_pack(self.dest())?;
         env.table.save_to_deref(src, dest, asm);
@@ -220,7 +219,7 @@ impl ValueAsmGenerator for Load {
         ret_data: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let mut pack = env.new_pack(self.src())?;
         env.table.load_deref_to(pack.clone(), &mut pack);
         env.table.new_val_with_src(ret_data, pack, asm)
@@ -233,7 +232,7 @@ impl ValueAsmGenerator for Binary {
         ret_data: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let p1 = env.new_pack(self.lhs())?;
         let p2 = env.new_pack(self.rhs())?;
         let rs1 = p1.reg;
@@ -278,7 +277,7 @@ impl ValueAsmGenerator for Binary {
             ],
         };
         asm.insts_mut().extend(insts);
-        let pack = InfoPack::new(rd);
+        let pack = WrapperPack::new(rd);
         env.table.new_val_with_src(ret_data, pack, asm)
     }
 }
@@ -289,10 +288,10 @@ impl ValueAsmGenerator for Return {
         _: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         if let Some(value) = self.value() {
-            let e = value.into_element(&env.ctx);
-            let mut pack = InfoPack::new(registers::A0);
+            let e = value.into_elem(&env.ctx);
+            let mut pack = WrapperPack::new(registers::A0);
             env.table.load_to(&e, &mut pack)?;
             pack.write_on(asm);
         }
@@ -308,7 +307,7 @@ impl ValueAsmGenerator for Jump {
         _: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let label = self.target();
         asm.insts_mut().push(Inst::J(env.l_gen.get_name(label)));
         Ok(())
@@ -321,7 +320,7 @@ impl ValueAsmGenerator for Branch {
         _: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let pack = env.new_pack(self.cond())?;
         let rs = pack.reg;
         pack.write_on(asm);
@@ -340,7 +339,7 @@ impl ValueAsmGenerator for Call {
         ret_data: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         for (index, &p) in self.args().iter().enumerate() {
             let param = env.ctx.to_ptr(p);
             env.table.save_func_param(index, param, asm)?;
@@ -359,7 +358,7 @@ impl ValueAsmGenerator for Call {
             }
             _ => unreachable!("Call callee should always be a function"),
         };
-        
+
         Ok(())
     }
 }
@@ -370,7 +369,7 @@ impl ValueAsmGenerator for GetElemPtr {
         ret_data: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let ty = env.ctx.value_type(self.src());
         let size = match ty.kind() {
             TypeKind::Pointer(p) => match p.kind() {
@@ -380,7 +379,7 @@ impl ValueAsmGenerator for GetElemPtr {
             _ => unreachable!("GetElemPtr source should always be a pointer"),
         };
         let mut pack = env.new_pack(self.src())?;
-        let bias = self.index().into_element(&env.ctx);
+        let bias = self.index().into_elem(&env.ctx);
         env.table.add_bias(&mut pack, &bias, size)?;
         env.table.new_val_with_src(ret_data, pack, asm)
     }
@@ -392,14 +391,14 @@ impl ValueAsmGenerator for GetPtr {
         ret_data: &ValueData,
         env: &mut Environment,
         asm: &mut AsmLocal,
-    ) -> Result<(), AsmError> {
+    ) -> AsmResult<()> {
         let ty = env.ctx.value_type(self.src());
         let size = match ty.kind() {
             TypeKind::Pointer(p) => p.size(),
             _ => unreachable!("GetElemPtr source should always be a pointer"),
         };
         let mut pack = env.new_pack(self.src())?;
-        let bias = &self.index().into_element(&env.ctx);
+        let bias = &self.index().into_elem(&env.ctx);
         env.table.add_bias(&mut pack, bias, size)?;
         env.table.new_val_with_src(ret_data, pack, asm)
     }

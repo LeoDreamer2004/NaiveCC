@@ -4,120 +4,66 @@ use super::ast::{ConstDef, ConstExp, ConstInitVal, Exp, FuncFParam, InitVal, Var
 use super::env::{Context, Environment};
 use super::eval::Eval;
 use super::generate::GenerateIr;
-use super::AstError;
+use super::{AstError, AstResult};
 use crate::utils::namer::{global_ident, normal_ident};
 use koopa::ir::builder::{GlobalInstBuilder, LocalInstBuilder, ValueBuilder};
 use koopa::ir::{Type, Value};
+use std::cell::RefCell;
+use std::fmt::Debug;
+use std::rc::Rc;
 
 /// Symbol Table
 /// Implemented as a stack of scopes
 #[derive(Debug, Default)]
 pub struct SymbolTable {
-    items: Vec<SymbolItem>,
+    items: Vec<TableItem>,
 }
 
 /// A collection of all symbols
-#[derive(Debug, Clone)]
-pub enum SymbolItem {
-    Var(VarSymbol),
-    VarArray(VarArraySymbol),
-    Const(ConstSymbol),
-    ConstArray(ConstArraySymbol),
-    FParamArray(FParamArraySymbol),
+#[derive(Debug)]
+pub enum TableItem {
+    Symbol(Rc<RefCell<dyn Symbol>>),
     ScopeSeparator,
 }
 
-impl SymbolItem {
-    fn symbol(&self) -> &dyn Symbol {
-        match self {
-            SymbolItem::Var(symbol) => symbol,
-            SymbolItem::VarArray(symbol) => symbol,
-            SymbolItem::Const(symbol) => symbol,
-            SymbolItem::ConstArray(symbol) => symbol,
-            SymbolItem::FParamArray(symbol) => symbol,
-            SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
-        }
-    }
-
-    fn symbol_mut(&mut self) -> &mut dyn Symbol {
-        match self {
-            SymbolItem::Var(symbol) => symbol,
-            SymbolItem::VarArray(symbol) => symbol,
-            SymbolItem::Const(symbol) => symbol,
-            SymbolItem::ConstArray(symbol) => symbol,
-            SymbolItem::FParamArray(symbol) => symbol,
-            SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
-        }
-    }
-
-    fn symbol_clone(&self) -> Box<dyn Symbol> {
-        match self {
-            SymbolItem::Var(symbol) => Box::new(symbol.clone()),
-            SymbolItem::VarArray(symbol) => Box::new(symbol.clone()),
-            SymbolItem::Const(symbol) => Box::new(symbol.clone()),
-            SymbolItem::ConstArray(symbol) => Box::new(symbol.clone()),
-            SymbolItem::FParamArray(symbol) => Box::new(symbol.clone()),
-            SymbolItem::ScopeSeparator => panic!("Invalid access to scope separator"),
-        }
-    }
-}
-
 impl SymbolTable {
-    pub fn new_symbol(&mut self, symbol: &impl SymbolLike) -> Result<Box<dyn Symbol>, AstError> {
-        let item = symbol.wrap(self)?;
-        self.items.push(item.clone());
-        Ok(item.symbol_clone())
-    }
+    pub fn new_symbol(&mut self, symbol: &impl SymbolLike) -> AstResult<Rc<RefCell<dyn Symbol>>> {
+        let symbol = symbol.wrap(self)?;
+        self.items.push(TableItem::Symbol(symbol));
 
-    pub fn set_alloc(&mut self, ident: &String, alloc: Value) -> Result<(), AstError> {
-        for item in &mut self.items.iter_mut().rev() {
-            if matches!(item, SymbolItem::ScopeSeparator) {
-                continue;
-            }
-            if ident == item.symbol().ident() {
-                return item.symbol_mut().set_alloc(alloc);
-            }
+        match self.items.last() {
+            Some(item) => match item {
+                TableItem::Symbol(symbol) => Ok(Rc::clone(symbol)),
+                TableItem::ScopeSeparator => unreachable!(),
+            },
+            _ => unreachable!(),
         }
-        Err(AstError::SymbolNotFoundError(ident.clone()))
     }
 
-    fn lookup_item(&self, ident: &String) -> Option<&SymbolItem> {
-        // Search from the top of the stack
+    pub fn lookup(&self, ident: &String) -> Option<Rc<RefCell<dyn Symbol>>> {
         for item in self.items.iter().rev() {
-            if matches!(item, SymbolItem::ScopeSeparator) {
-                continue;
-            }
-            if ident == item.symbol().ident() {
-                return Some(item);
+            if let TableItem::Symbol(symbol) = item {
+                if ident == symbol.borrow().ident() {
+                    return Some(Rc::clone(symbol));
+                }
             }
         }
         None
     }
 
-    pub fn lookup(&self, ident: &String) -> Option<&dyn Symbol> {
-        self.lookup_item(ident).map(|item| item.symbol())
-    }
-
-    pub fn lookup_or(&self, ident: &String) -> Result<&dyn Symbol, AstError> {
+    pub fn lookup_or(&self, ident: &String) -> AstResult<Rc<RefCell<dyn Symbol>>> {
         self.lookup(ident)
             .ok_or(AstError::SymbolNotFoundError(ident.clone()))
     }
 
-    pub fn lookup_const_val(&self, ident: &String) -> Option<i32> {
-        match self.lookup_item(ident) {
-            Some(SymbolItem::Const(symbol)) => Some(symbol.value),
-            _ => None,
-        }
-    }
-
     pub fn enter_scope(&mut self) {
-        self.items.push(SymbolItem::ScopeSeparator);
+        self.items.push(TableItem::ScopeSeparator);
     }
 
     pub fn exit_scope(&mut self) {
         loop {
             match self.items.pop().unwrap() {
-                SymbolItem::ScopeSeparator => break,
+                TableItem::ScopeSeparator => break,
                 _ => {}
             }
         }
@@ -130,34 +76,36 @@ impl SymbolTable {
 ///
 /// Symbols are always with an identifier,
 /// including variables, constants, and function params
-pub trait Symbol {
+pub trait Symbol: Debug {
     /// Returns the identifier of the symbol
     fn ident(&self) -> &String;
     /// Returns true if the symbol is a single variable
     fn is_single(&self) -> bool;
     /// Returns true if the symbol is a constant
     fn is_const(&self) -> bool;
+    /// Returns the constant value of the symbol
+    fn const_value(&self) -> Option<i32>;
     /// Sets the allocation of the symbol
     ///
     /// # Error
     /// If the symbol is not a variable
-    fn set_alloc(&mut self, alloc: Value) -> Result<(), AstError>;
+    fn set_alloc(&mut self, alloc: Value) -> AstResult<()>;
     /// Returns the allocation of the symbol
     ///     
     /// # Error
     /// If the symbol does not have an allocation, or it is not a variable
-    fn get_alloc(&self) -> Result<Value, AstError>;
+    fn get_alloc(&self) -> AstResult<Value>;
     /// Returns the dimension bias of the symbol
     ///
     /// # Error
     /// If the symbol is not an array
-    fn get_bias(&self) -> Result<&Vec<usize>, AstError>;
+    fn get_bias(&self) -> AstResult<&Vec<usize>>;
     /// Returns the index of the symbol
     ///
     /// # Error
     /// If the symbol has not been added to the symbol table
     /// or the symbol is not an array
-    fn index(&self, indexes: &Vec<Value>, ctx: &mut Context) -> Result<Value, AstError> {
+    fn index(&self, indexes: &Vec<Value>, ctx: &mut Context) -> AstResult<Value> {
         if self.is_single() {
             return Err(AstError::TypeError("Not an array".into()));
         }
@@ -183,12 +131,7 @@ pub trait Symbol {
         }
     }
     /// Generates the value of the symbol
-    fn gen_value(
-        &self,
-        ty: Type,
-        init: Option<Init>,
-        env: &mut Environment,
-    ) -> Result<(), AstError>;
+    fn gen_value(&self, ty: Type, init: Option<Init>, env: &mut Environment) -> AstResult<Value>;
 }
 
 #[derive(Debug, Clone)]
@@ -243,26 +186,25 @@ impl Symbol for VarSymbol {
         false
     }
 
-    fn set_alloc(&mut self, alloc: Value) -> Result<(), AstError> {
+    fn const_value(&self) -> Option<i32> {
+        None
+    }
+
+    fn set_alloc(&mut self, alloc: Value) -> AstResult<()> {
         self.alloc = Some(alloc);
         Ok(())
     }
 
-    fn get_alloc(&self) -> Result<Value, AstError> {
+    fn get_alloc(&self) -> AstResult<Value> {
         self.alloc
             .ok_or(AstError::IllegalAccessError("No allocation".to_string()))
     }
 
-    fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
+    fn get_bias(&self) -> AstResult<&Vec<usize>> {
         Err(AstError::TypeError("Not an array".to_string()))
     }
 
-    fn gen_value(
-        &self,
-        ty: Type,
-        init: Option<Init>,
-        env: &mut Environment,
-    ) -> Result<(), AstError> {
+    fn gen_value(&self, ty: Type, init: Option<Init>, env: &mut Environment) -> AstResult<Value> {
         let mut has_init = false;
         let init = match init {
             Some(Init::Var(symbol)) => {
@@ -288,9 +230,8 @@ impl Symbol for VarSymbol {
             }
             alloc
         };
-        env.table.set_alloc(self.ident(), alloc)?;
         env.ctx.set_value_name(alloc, normal_ident(self.ident()));
-        Ok(())
+        Ok(alloc)
     }
 }
 
@@ -307,24 +248,30 @@ impl Symbol for ConstSymbol {
         true
     }
 
-    fn set_alloc(&mut self, _: Value) -> Result<(), AstError> {
+    fn const_value(&self) -> Option<i32> {
+        Some(self.value)
+    }
+
+    fn set_alloc(&mut self, _: Value) -> AstResult<()> {
         Err(AstError::TypeError(
             "Constants cannot bind allocation".to_string(),
         ))
     }
 
-    fn get_alloc(&self) -> Result<Value, AstError> {
+    fn get_alloc(&self) -> AstResult<Value> {
         Err(AstError::TypeError(
             "Constants do not have allocation".to_string(),
         ))
     }
 
-    fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
+    fn get_bias(&self) -> AstResult<&Vec<usize>> {
         Err(AstError::TypeError("Not an array".to_string()))
     }
 
-    fn gen_value(&self, _: Type, _: Option<Init>, _: &mut Environment) -> Result<(), AstError> {
-        Ok(())
+    fn gen_value(&self, _: Type, _: Option<Init>, _: &mut Environment) -> AstResult<Value> {
+        Err(AstError::InitializeError(
+            "Constants do not gen values".into(),
+        ))
     }
 }
 
@@ -341,26 +288,25 @@ impl Symbol for VarArraySymbol {
         false
     }
 
-    fn set_alloc(&mut self, alloc: Value) -> Result<(), AstError> {
+    fn const_value(&self) -> Option<i32> {
+        None
+    }
+
+    fn set_alloc(&mut self, alloc: Value) -> AstResult<()> {
         self.alloc = Some(alloc);
         Ok(())
     }
 
-    fn get_alloc(&self) -> Result<Value, AstError> {
+    fn get_alloc(&self) -> AstResult<Value> {
         self.alloc
             .ok_or(AstError::IllegalAccessError("No allocation".to_string()))
     }
 
-    fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
+    fn get_bias(&self) -> AstResult<&Vec<usize>> {
         Ok(&self.ptr_bias)
     }
 
-    fn gen_value(
-        &self,
-        ty: Type,
-        init: Option<Init>,
-        env: &mut Environment,
-    ) -> Result<(), AstError> {
+    fn gen_value(&self, ty: Type, init: Option<Init>, env: &mut Environment) -> AstResult<Value> {
         let bias = self.get_bias()?;
         let arr_ty = gen_array_type(ty, bias);
         let alloc = if env.ctx.is_global() {
@@ -394,8 +340,7 @@ impl Symbol for VarArraySymbol {
             }
         };
         env.ctx.set_value_name(alloc, global_ident(self.ident()));
-        env.table.set_alloc(self.ident(), alloc)?;
-        Ok(())
+        Ok(alloc)
     }
 }
 
@@ -412,26 +357,25 @@ impl Symbol for ConstArraySymbol {
         true
     }
 
-    fn set_alloc(&mut self, alloc: Value) -> Result<(), AstError> {
+    fn const_value(&self) -> Option<i32> {
+        None
+    }
+
+    fn set_alloc(&mut self, alloc: Value) -> AstResult<()> {
         self.alloc = Some(alloc);
         Ok(())
     }
 
-    fn get_alloc(&self) -> Result<Value, AstError> {
+    fn get_alloc(&self) -> AstResult<Value> {
         self.alloc
             .ok_or(AstError::IllegalAccessError("No allocation".to_string()))
     }
 
-    fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
+    fn get_bias(&self) -> AstResult<&Vec<usize>> {
         Ok(&self.ptr_bias)
     }
 
-    fn gen_value(
-        &self,
-        _: Type,
-        init: Option<Init>,
-        env: &mut Environment,
-    ) -> Result<(), AstError> {
+    fn gen_value(&self, _: Type, init: Option<Init>, env: &mut Environment) -> AstResult<Value> {
         let init = match init {
             Some(Init::Const(symbol)) => symbol
                 .parse(self.get_bias()?)?
@@ -446,8 +390,7 @@ impl Symbol for ConstArraySymbol {
             fill_local(init, self.get_bias()?, env)
         };
         env.ctx.set_value_name(alloc, global_ident(self.ident()));
-        env.table.set_alloc(self.ident(), alloc)?;
-        Ok(())
+        Ok(alloc)
     }
 }
 
@@ -464,17 +407,21 @@ impl Symbol for FParamArraySymbol {
         false
     }
 
-    fn set_alloc(&mut self, alloc: Value) -> Result<(), AstError> {
+    fn const_value(&self) -> Option<i32> {
+        None
+    }
+
+    fn set_alloc(&mut self, alloc: Value) -> AstResult<()> {
         self.alloc = Some(alloc);
         Ok(())
     }
 
-    fn get_alloc(&self) -> Result<Value, AstError> {
+    fn get_alloc(&self) -> AstResult<Value> {
         self.alloc
             .ok_or(AstError::IllegalAccessError("No allocation".to_string()))
     }
 
-    fn get_bias(&self) -> Result<&Vec<usize>, AstError> {
+    fn get_bias(&self) -> AstResult<&Vec<usize>> {
         Ok(&self.ptr_bias)
     }
 
@@ -484,7 +431,7 @@ impl Symbol for FParamArraySymbol {
         Type::get_pointer(gen_array_type(ty, &bias))
     }
 
-    fn index(&self, indexes: &Vec<Value>, ctx: &mut Context) -> Result<Value, AstError> {
+    fn index(&self, indexes: &Vec<Value>, ctx: &mut Context) -> AstResult<Value> {
         if indexes.is_empty() {
             return self.get_alloc();
         }
@@ -503,9 +450,12 @@ impl Symbol for FParamArraySymbol {
         }
         Ok(ptr)
     }
-    fn gen_value(&self, _: Type, _: Option<Init>, _: &mut Environment) -> Result<(), AstError> {
+
+    fn gen_value(&self, _: Type, _: Option<Init>, _: &mut Environment) -> AstResult<Value> {
         // Do nothing, as it is finished in Koopa builtin
-        Ok(())
+        Err(AstError::IllegalAccessError(
+            "Cannot generate value for function parameter".into(),
+        ))
     }
 }
 
@@ -563,7 +513,7 @@ fn fill_local(init: ArrayParseResult<Value>, bias: &Vec<usize>, env: &mut Enviro
 
 pub trait SymbolLike {
     fn ident(&self) -> &String;
-    fn wrap(&self, table: &SymbolTable) -> Result<SymbolItem, AstError>;
+    fn wrap(&self, table: &SymbolTable) -> AstResult<Rc<RefCell<dyn Symbol>>>;
 }
 
 impl SymbolLike for ConstDef {
@@ -571,7 +521,7 @@ impl SymbolLike for ConstDef {
         &self.ident
     }
 
-    fn wrap(&self, table: &SymbolTable) -> Result<SymbolItem, AstError> {
+    fn wrap(&self, table: &SymbolTable) -> AstResult<Rc<RefCell<dyn Symbol>>> {
         let ident = self.ident().clone();
         match &self.const_init_val {
             ConstInitVal::ConstExp(const_exp) => {
@@ -581,7 +531,7 @@ impl SymbolLike for ConstDef {
                     ));
                 }
                 let value = const_exp.eval(table)?;
-                Ok(SymbolItem::Const(ConstSymbol { ident, value }))
+                Ok(Rc::new(RefCell::new(ConstSymbol { ident, value })))
             }
             ConstInitVal::ConstInitVals(_) => {
                 let mut bias = 1;
@@ -591,11 +541,11 @@ impl SymbolLike for ConstDef {
                     ptr_bias.push(bias);
                 }
                 ptr_bias.reverse();
-                Ok(SymbolItem::ConstArray(ConstArraySymbol {
+                Ok(Rc::new(RefCell::new(ConstArraySymbol {
                     ident,
                     alloc: None,
                     ptr_bias,
-                }))
+                })))
             }
         }
     }
@@ -606,10 +556,10 @@ impl SymbolLike for VarDef {
         &self.ident
     }
 
-    fn wrap(&self, table: &SymbolTable) -> Result<SymbolItem, AstError> {
+    fn wrap(&self, table: &SymbolTable) -> AstResult<Rc<RefCell<dyn Symbol>>> {
         let ident = self.ident().clone();
         if self.array_size.is_empty() {
-            Ok(SymbolItem::Var(VarSymbol { ident, alloc: None }))
+            Ok(Rc::new(RefCell::new(VarSymbol { ident, alloc: None })))
         } else {
             let mut bias = 1;
             let mut ptr_bias = vec![1];
@@ -619,11 +569,11 @@ impl SymbolLike for VarDef {
             }
             ptr_bias.reverse();
 
-            Ok(SymbolItem::VarArray(VarArraySymbol {
+            Ok(Rc::new(RefCell::new(VarArraySymbol {
                 ident,
                 alloc: None,
                 ptr_bias,
-            }))
+            })))
         }
     }
 }
@@ -633,10 +583,10 @@ impl SymbolLike for FuncFParam {
         &self.ident
     }
 
-    fn wrap(&self, table: &SymbolTable) -> Result<SymbolItem, AstError> {
+    fn wrap(&self, table: &SymbolTable) -> AstResult<Rc<RefCell<dyn Symbol>>> {
         let ident = self.ident().clone();
         if !self.is_array {
-            Ok(SymbolItem::Var(VarSymbol { ident, alloc: None }))
+            Ok(Rc::new(RefCell::new(VarSymbol { ident, alloc: None })))
         } else {
             let mut bias = 1;
             let mut ptr_bias = vec![1];
@@ -646,11 +596,11 @@ impl SymbolLike for FuncFParam {
             }
             ptr_bias.push(*ptr_bias.last().unwrap());
             ptr_bias.reverse();
-            Ok(SymbolItem::FParamArray(FParamArraySymbol {
+            Ok(Rc::new(RefCell::new(FParamArraySymbol {
                 ident,
                 alloc: None,
                 ptr_bias,
-            }))
+            })))
         }
     }
 }
@@ -716,7 +666,7 @@ where
     type E;
 
     fn as_type(&self) -> ArrayType<Self>;
-    fn as_element(&self) -> Result<&Self::E, AstError> {
+    fn as_element(&self) -> AstResult<&Self::E> {
         match self.as_type() {
             ArrayType::Element(e) => Ok(e),
             _ => Err(AstError::TypeError("Not an element".to_string())),
@@ -734,7 +684,7 @@ where
     /// ```
     /// a = {1, 2, 0, 3, 4, 0, 5, 6, 0}
     /// ```
-    fn parse(&self, bias_stack: &Vec<usize>) -> Result<ArrayParseResult<&Self::E>, AstError> {
+    fn parse(&self, bias_stack: &Vec<usize>) -> AstResult<ArrayParseResult<&Self::E>> {
         if bias_stack.is_empty() {
             return Err(AstError::InitializeError(
                 "Array dimensions mismatch".to_string(),

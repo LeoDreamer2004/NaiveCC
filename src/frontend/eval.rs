@@ -2,14 +2,14 @@
 
 use super::ast::*;
 use super::symbol::SymbolTable;
-use super::AstError;
+use super::{AstError, AstResult};
 
 pub trait Eval<T> {
-    fn eval(&self, table: &SymbolTable) -> Result<T, AstError>;
+    fn eval(&self, table: &SymbolTable) -> AstResult<T>;
 }
 
 impl Eval<i32> for Exp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             Exp::LOrExp(exp) => exp.eval(table),
         }
@@ -17,7 +17,7 @@ impl Eval<i32> for Exp {
 }
 
 impl Eval<i32> for ConstExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             ConstExp::LOrExp(exp) => exp.eval(table),
         }
@@ -25,7 +25,7 @@ impl Eval<i32> for ConstExp {
 }
 
 impl Eval<i32> for LOrExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             LOrExp::LAndExp(exp) => exp.eval(table),
             LOrExp::LOrOpExp(op_exp) => {
@@ -38,7 +38,7 @@ impl Eval<i32> for LOrExp {
 }
 
 impl Eval<i32> for LAndExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             LAndExp::EqExp(exp) => exp.eval(table),
             LAndExp::LAndOpExp(op_exp) => {
@@ -51,7 +51,7 @@ impl Eval<i32> for LAndExp {
 }
 
 impl Eval<i32> for EqExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             EqExp::RelExp(exp) => exp.eval(table),
             EqExp::EqOpExp(op_exp) => {
@@ -67,7 +67,7 @@ impl Eval<i32> for EqExp {
 }
 
 impl Eval<i32> for RelExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             RelExp::AddExp(exp) => exp.eval(table),
             RelExp::RelOpExp(op_exp) => {
@@ -85,7 +85,7 @@ impl Eval<i32> for RelExp {
 }
 
 impl Eval<i32> for AddExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             AddExp::MulExp(exp) => exp.eval(table),
             AddExp::AddOpExp(op_exp) => {
@@ -101,7 +101,7 @@ impl Eval<i32> for AddExp {
 }
 
 impl Eval<i32> for MulExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             MulExp::UnaryExp(exp) => exp.eval(table),
             MulExp::MulOpExp(op_exp) => {
@@ -118,7 +118,7 @@ impl Eval<i32> for MulExp {
 }
 
 impl Eval<i32> for UnaryExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             UnaryExp::PrimaryExp(exp) => exp.eval(table),
             UnaryExp::FuncCall(_) => Err(AstError::IllegalConstExpError("Function Call".into())),
@@ -135,13 +135,15 @@ impl Eval<i32> for UnaryExp {
 }
 
 impl Eval<i32> for PrimaryExp {
-    fn eval(&self, table: &SymbolTable) -> Result<i32, AstError> {
+    fn eval(&self, table: &SymbolTable) -> AstResult<i32> {
         match self {
             PrimaryExp::Exp(exp) => exp.eval(table),
             PrimaryExp::LValExp(l_val) => {
                 let ident = l_val.ident.clone();
                 table
-                    .lookup_const_val(&ident)
+                    .lookup_or(&ident)?
+                    .borrow()
+                    .const_value()
                     .ok_or(AstError::IllegalConstExpError(ident.clone()))
             }
             PrimaryExp::Number(num) => match num {

@@ -15,17 +15,18 @@ pub struct AsmGlobal {
     locals: Vec<AsmLocal>,
 }
 
-#[derive(Debug, Clone)]
-pub struct AsmLocal {
-    label: Option<Label>,
-    insts: Vec<Inst>,
-}
-
 /// **Section**: .text or .data.
 #[derive(Debug, Clone)]
 pub enum Section {
     Text,
     Data,
+}
+
+// NOTE: Only when the section is .text, the label is Some.
+#[derive(Debug, Clone)]
+pub struct AsmLocal {
+    label: Option<Label>,
+    insts: Vec<Inst>,
 }
 
 impl Section {
