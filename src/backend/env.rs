@@ -32,7 +32,7 @@ impl<'a> Context<'a> {
     }
 
     /// Get the data of the global value.
-    pub fn global_data(&self, value: Value) -> Ref<ValueData> {
+    pub fn global_data(&self, value: Value) -> Ref<'_, ValueData> {
         self.program.borrow_value(value)
     }
 

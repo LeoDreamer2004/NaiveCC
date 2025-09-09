@@ -20,7 +20,7 @@ impl OptHelper {
         Self { insts, res }
     }
 
-    pub fn new_cursor(&mut self) -> Cursor {
+    pub fn new_cursor(&mut self) -> Cursor<'_> {
         let tot_len = self.insts.len();
         Cursor {
             helper: self,

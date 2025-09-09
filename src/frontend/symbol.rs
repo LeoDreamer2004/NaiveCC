@@ -665,7 +665,7 @@ where
     /// The type of the elements in the array
     type E;
 
-    fn as_type(&self) -> ArrayType<Self>;
+    fn as_type(&self) -> ArrayType<'_, Self>;
     fn as_element(&self) -> AstResult<&Self::E> {
         match self.as_type() {
             ArrayType::Element(e) => Ok(e),
@@ -736,7 +736,7 @@ where
 
 impl Initilizer for ConstInitVal {
     type E = ConstExp;
-    fn as_type(&self) -> ArrayType<Self> {
+    fn as_type(&self) -> ArrayType<'_, Self> {
         match self {
             ConstInitVal::ConstExp(exp) => ArrayType::Element(exp),
             ConstInitVal::ConstInitVals(vals) => ArrayType::Array(vals),
@@ -746,7 +746,7 @@ impl Initilizer for ConstInitVal {
 
 impl Initilizer for InitVal {
     type E = Exp;
-    fn as_type(&self) -> ArrayType<Self> {
+    fn as_type(&self) -> ArrayType<'_, Self> {
         match self {
             InitVal::Exp(exp) => ArrayType::Element(exp),
             InitVal::InitVals(vals) => ArrayType::Array(vals),
