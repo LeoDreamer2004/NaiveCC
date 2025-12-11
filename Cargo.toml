@@ -2,13 +2,15 @@
 name = "compiler"
 version = "0.1.0"
 edition = "2021"
+authors = ["LeoDreamer"]
+license = "MIT"
 
 [build-dependencies]
-lalrpop = "0.22.0"
+lalrpop = "0.22"
 
 [dependencies]
 lazy_static = "1.4.0"
-lalrpop-util = { version = "0.22.0", features = ["lexer"] }
-key-node-list = "0.0.5"
-heuristic-graph-coloring = "0.1.0"
-koopa = "0.0.8"
+lalrpop-util = { version = "0.22", features = ["lexer"] }
+key-node-list = "0.0"
+heuristic-graph-coloring = "0.1"
+koopa = "0.0"
