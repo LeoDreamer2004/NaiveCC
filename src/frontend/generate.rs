@@ -9,7 +9,7 @@ use super::symbol::*;
 use super::{AstError, AstResult};
 use crate::utils::namer::{global_ident, normal_ident};
 use koopa::ir::builder::*;
-use koopa::ir::{BinaryOp, FunctionData, Type, TypeKind, Value};
+use koopa::ir::{BinaryOp, Type, TypeKind, Value};
 
 /// Trait which should be implemented by AST types to generate IR
 ///
@@ -54,13 +54,12 @@ impl GenerateIr for FuncDef {
             params.push((Some(global_ident(symbol.ident())), ty));
         }
 
-        let func = FunctionData::with_param_names(
+        let func = env.ctx.program.new_func_def_with_param_names(
             global_ident(&self.ident),
             params.clone(),
             self.func_type.into(),
         );
 
-        let func = env.ctx.program.new_func(func);
         env.ctx.func(func);
         env.ctx.create_block(Some("%entry".into()));
 

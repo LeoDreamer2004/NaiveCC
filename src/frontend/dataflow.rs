@@ -184,16 +184,21 @@ impl EGenKillParser {
         if !data.ty().is_unit() {
             availables.insert(inst);
         } else if let ValueKind::Store(store) = data.kind() {
-            availables.retain(|s| {
-                func_data
-                    .dfg()
-                    .value(*s)
-                    .kind()
-                    .value_uses()
-                    .filter(|x| *x == store.dest())
-                    .count()
-                    == 0
-            });
+            if let Some(dest) = func_data.dfg().values().get(&store.dest()) {
+                // Only users of the destination can be invalidated by this store.
+                for user in dest.used_by() {
+                    availables.remove(user);
+                }
+            } else {
+                availables.retain(|s| {
+                    !func_data
+                        .dfg()
+                        .value(*s)
+                        .kind()
+                        .value_uses()
+                        .any(|value| value == store.dest())
+                });
+            }
         }
     }
 

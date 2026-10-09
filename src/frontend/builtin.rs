@@ -1,32 +1,22 @@
-use koopa::ir::{FunctionData, Type};
 use super::env::Context;
+use koopa::ir::Type;
 
-fn builtin_functions() -> Vec<FunctionData> {
-    let get_int = FunctionData::new_decl("@getint".into(), vec![], Type::get_i32());
-    let get_ch = FunctionData::new_decl("@getch".into(), vec![], Type::get_i32());
-    let get_array = FunctionData::new_decl(
+pub fn setup_builtins(ctx: &mut Context) {
+    let program = &mut ctx.program;
+    program.new_func_decl("@getint".into(), vec![], Type::get_i32());
+    program.new_func_decl("@getch".into(), vec![], Type::get_i32());
+    program.new_func_decl(
         "@getarray".into(),
         vec![Type::get_pointer(Type::get_i32())],
         Type::get_i32(),
     );
-    let put_int = FunctionData::new_decl("@putint".into(), vec![Type::get_i32()], Type::get_unit());
-    let put_ch = FunctionData::new_decl("@putch".into(), vec![Type::get_i32()], Type::get_unit());
-    let put_array = FunctionData::new_decl(
+    program.new_func_decl("@putint".into(), vec![Type::get_i32()], Type::get_unit());
+    program.new_func_decl("@putch".into(), vec![Type::get_i32()], Type::get_unit());
+    program.new_func_decl(
         "@putarray".into(),
         vec![Type::get_i32(), Type::get_pointer(Type::get_i32())],
         Type::get_unit(),
     );
-    let start_time = FunctionData::new_decl("@starttime".into(), vec![], Type::get_i32());
-    let end_time = FunctionData::new_decl("@stoptime".into(), vec![], Type::get_i32());
-    vec![
-        get_int, get_ch, get_array, put_int, put_ch, put_array, start_time, end_time,
-    ]
-}
-
-pub fn setup_builtins(ctx: &mut Context) {
-    // builtin functions
-    let builtins = builtin_functions();
-    for func in builtins {
-        ctx.program.new_func(func);
-    }
+    program.new_func_decl("@starttime".into(), vec![], Type::get_i32());
+    program.new_func_decl("@stoptime".into(), vec![], Type::get_i32());
 }
